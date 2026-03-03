@@ -94,6 +94,14 @@ func main() {
 	triggerCh := make(chan struct{}, 1)
 	var hasSecret atomic.Bool
 	hasSecret.Store(st.SecretKey != "")
+	if restored := remoteSupportSession.Snapshot(); restored.State == remotesupport.StatePending && restored.RequestedAtUnix > 0 {
+		deadline := restored.RequestedAtUnix + int64(cfg.RemoteSupport.ApprovalTimeoutSec)
+		if time.Now().Unix() > deadline {
+			remoteSupportSession.End("approval timeout after restart")
+			persistRemoteSupportSession()
+			logger.Printf("remote support session expired on startup: session_id=%d", restored.SessionID)
+		}
+	}
 
 	reg, err := client.Register(ctx, api.RegisterRequest{
 		UUID:          st.UUID,
