@@ -23,4 +23,13 @@ Bu dizin, AppCenter Linux agent gelistirme ana proje dizinidir.
 - `/root/appcenter/PLAN.md`
 - `/root/appcenter/REMOTE_SUPPORT_PLAN.md`
 
+## Canli Test Ortami
+
+- Son dogrulanan erisim tarihi: 2026-03-03
+- Linux agent canli test baglanti bilgisi:
+  - IP: `10.6.60.88`
+  - SSH kullanici: `ubuntu`
+  - SSH sifre: `1234asd!!!`
+- Not: Linux agent canli testleri bu baglanti uzerinden yurutulecektir.
+
 # appcenter-agent-linux
