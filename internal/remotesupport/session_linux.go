@@ -42,6 +42,15 @@ func NewSessionManager() *SessionManager {
 	}
 }
 
+func (m *SessionManager) Restore(s SessionStatus) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if s.State == "" {
+		s.State = StateIdle
+	}
+	m.status = s
+}
+
 func (m *SessionManager) Snapshot() SessionStatus {
 	m.mu.Lock()
 	defer m.mu.Unlock()

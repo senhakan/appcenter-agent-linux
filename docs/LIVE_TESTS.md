@@ -1644,3 +1644,54 @@ Not:
   - `linux agent runtime: ipc=/tmp/ac-live/ipc.sock remote_support_enabled=true`
   - `linux agent install queue: capacity=32 workers=1`
   - `periodic heartbeat ok: status=ok commands=0`
+
+## 2026-03-03 - Remote Support Session State Persistence Across Restart
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test setup:
+  - Ayrı state dosyali config ile agent calistirildi (`/tmp/ac-live/state_remote_support_persist.json`).
+  - IPC ile `remote_support_session_request(session_id=8401)` tetiklendi (pending state).
+  - Agent durdurulup ayni config ile tekrar baslatildi.
+  - Restart sonrasi IPC `remote_support_status` ile state dogrulandi.
+
+### Result
+
+- Remote support session state persistence: OK
+  - Run#1 sonunda state dosyasinda `pending_approval` session kaydi yazildi.
+  - Run#2 baslangicinda session state state dosyasindan restore edildi.
+
+### Evidence
+
+- Run#1 IPC outputs:
+  - `REQ1 ... "session":{"state":"pending_approval","session_id":8401,...}`
+  - `STATUS1 ... "session":{"state":"pending_approval","session_id":8401,...}`
+- State file (`/tmp/ac-live/state_remote_support_persist.json`):
+  - `remote_support_session={"state":"pending_approval","session_id":8401,"admin_name":"persist-admin",...}`
+- Run#2 IPC output:
+  - `STATUS2 ... "session":{"state":"pending_approval","session_id":8401,...}`
+- Run#2 log (`/tmp/ac-live/run_remote_support_persist_2.log`):
+  - `remote support session restored: state=pending_approval session_id=8401`
+
+## 2026-03-03 - Production Smoke (Remote Support Session Persistence Build)
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test server URL: `http://10.6.100.170:8000`
+- Test setup:
+  - `/tmp/ac-live/config.yaml` (`remote_support.enabled=true`) ile yeni build foreground calistirildi (`55s`).
+
+### Result
+
+- Production heartbeat akisi: OK
+- Install queue runtime logu korundu: OK
+- Bu kosuda yeni komut gelmedi (`commands=0`).
+
+### Evidence
+
+- Agent runtime log (`/tmp/ac-live/run_workers_prod.log`):
+  - `linux agent runtime: ipc=/tmp/ac-live/ipc.sock remote_support_enabled=true`
+  - `linux agent install queue: capacity=32 workers=1`
+  - `periodic heartbeat ok: status=ok commands=0`
