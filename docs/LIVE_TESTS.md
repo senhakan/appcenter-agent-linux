@@ -505,3 +505,62 @@ Not:
 
 Not:
 - Bu test, production servera dokunmadan kontrollu canli host ortaminda yapilmistir.
+
+## 2026-03-03 - Invalid Hash Command Rejection (Controlled Mock)
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test setup:
+  - Lokal mock API (`127.0.0.1:18084`) ilk heartbeat'te hatali `file_hash` iceren komut dondurdu:
+    - `task_id=902`, `action=install`, `download_url` dolu, `file_hash=sha256:XYZ`
+  - Agent mock config ile foreground calistirildi.
+
+### Result
+
+- Agent komutu indirmeye girmeden reject etti: OK
+- Beklenen log:
+  - `task=902 invalid install command: file_hash must be sha256 hex`
+- Task status callback:
+  - `status=failed`, `message=Invalid install command`, `error=file_hash must be sha256 hex`
+- Download endpoint hic cagirilmadi: OK
+
+### Evidence
+
+- Agent runtime log (`/tmp/ac-live/run_invalidhash.log`):
+  - `2026/03/03 21:52:11 task=902 invalid install command: file_hash must be sha256 hex`
+- Mock event log (`/tmp/ac-live/mock_invalid_hash_events.jsonl`):
+  - `task_status` kaydi:
+    - `{\"kind\":\"task_status\",\"path\":\"/api/v1/agent/task/902/status\",\"body\":{\"status\":\"failed\",\"progress\":100,\"message\":\"Invalid install command\",\"error\":\"file_hash must be sha256 hex\"}}`
+  - `download` cagrisi: `0`
+
+Not:
+- Bu test, production servera dokunmadan kontrollu canli host ortaminda yapilmistir.
+
+## 2026-03-03 - Normal Flow Regression Smoke (Post Hash Validation)
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test server URL: `http://10.6.100.170:8000`
+- Agent build:
+  - install command hash format validation dahil surum
+
+### Result
+
+- Canli install task akis smoke: OK (`task_id=38`)
+- Download/Install/Success zinciri regressionsuz: OK
+
+### Evidence
+
+- Agent runtime log:
+  - `task=38 download ok: bytes=134 path=/tmp/ac-live/downloads/linux_install_ok.exe`
+  - `task=38 install success`
+- Server DB (`task_history`):
+  - `id=38`, `status=success`, `message=Install completed`, `exit_code=0`
+- Server journal (`appcenter` unit):
+  - `GET /api/v1/agent/download/11` `200 OK`
+  - `POST /api/v1/agent/task/38/status` callbacklari `200 OK`
+- Test host:
+  - `/tmp/ac_task_ok.txt` guncellendi (`2026-03-03T21:52:53Z`)
+  - `/tmp/ac-live/downloads` bos

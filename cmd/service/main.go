@@ -10,6 +10,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -26,6 +27,8 @@ import (
 )
 
 const processedTasksMaxEntries = 500
+
+var sha256HexRe = regexp.MustCompile(`^[a-f0-9]{64}$`)
 
 func main() {
 	var cfgPath string
@@ -524,6 +527,11 @@ func validateInstallCommand(cmd api.Command) string {
 	}
 	if strings.TrimSpace(cmd.FileHash) == "" {
 		return "file_hash is required"
+	}
+	hash := strings.ToLower(strings.TrimSpace(cmd.FileHash))
+	hash = strings.TrimPrefix(hash, "sha256:")
+	if !sha256HexRe.MatchString(hash) {
+		return "file_hash must be sha256 hex"
 	}
 	return ""
 }
