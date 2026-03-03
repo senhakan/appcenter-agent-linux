@@ -27,3 +27,30 @@
 - Server DB (`/var/lib/appcenter/appcenter.db`) row:
   - `platform=linux`, `arch=amd64`, `distro=ubuntu`, `distro_version=24.04`
 
+## 2026-03-03 - Signal Wake-Up Smoke (Long Poll)
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test server URL: `http://10.6.100.170:8000`
+- Agent build: signal long-poll destekli (`feat: add signal long-poll and immediate heartbeat trigger`)
+
+### Result
+
+- Long-poll endpoint baglantisi: OK (`GET /api/v1/agent/signal?timeout=55`)
+- Wake signal tetigi: OK (remote-support session create ile)
+- Agent tarafi anlik heartbeat: OK
+  - Log kaniti: `signal-triggered heartbeat ok: status=ok`
+
+### Evidence
+
+- Session create:
+  - `POST /api/v1/remote-support/sessions` -> `200` (session id: `217`)
+- Server journal:
+  - `10.6.60.88 -> GET /api/v1/agent/signal?timeout=55` (tekrarlayan)
+  - session create sonrasi `10.6.60.88 -> POST /api/v1/agent/heartbeat 200`
+- Agent runtime output:
+  - `2026/03/03 20:50:22 signal-triggered heartbeat ok: status=ok`
+
+Not:
+- Bu test sirasinda sunucuda `REMOTE_SUPPORT_ENABLED` ayari gecici olarak `true` yapilip test bitiminde tekrar `false` degerine geri alinmistir.
