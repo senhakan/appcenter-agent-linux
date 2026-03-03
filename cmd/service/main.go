@@ -21,6 +21,7 @@ import (
 	"appcenter-agent-linux/internal/api"
 	"appcenter-agent-linux/internal/config"
 	"appcenter-agent-linux/internal/installer"
+	"appcenter-agent-linux/internal/inventory"
 	"appcenter-agent-linux/internal/state"
 	"appcenter-agent-linux/internal/system"
 	"appcenter-agent-linux/pkg/utils"
@@ -136,6 +137,7 @@ func main() {
 	taskGuard := newTaskDeduper(30 * time.Minute)
 	taskGuard.Seed(st.ProcessedTasks)
 	persistTaskDeduper(cfg.Paths.StateFile, st, taskGuard, logger)
+	var nextInventorySync time.Time
 
 	sendHeartbeat := func(reason string) {
 		info = system.CollectHostInfo()
@@ -177,6 +179,10 @@ func main() {
 			return
 		}
 		logger.Printf("%s heartbeat ok: status=%s commands=%d", reason, hb.Status, len(hb.Commands))
+		if time.Now().After(nextInventorySync) {
+			syncInventory(ctx, client, cfg.Paths.StateFile, st, st.UUID, st.SecretKey, logger)
+			nextInventorySync = time.Now().Add(30 * time.Minute)
+		}
 		if hb.Config.HeartbeatIntervalSec > 0 && hb.Config.HeartbeatIntervalSec != interval {
 			interval = hb.Config.HeartbeatIntervalSec
 			ticker.Reset(time.Duration(interval) * time.Second)
@@ -604,4 +610,42 @@ func validateInstallCommand(cmd api.Command) string {
 		return "file_hash must be sha256 hex"
 	}
 	return ""
+}
+
+func syncInventory(
+	ctx context.Context,
+	client *api.Client,
+	statePath string,
+	st *state.AgentState,
+	agentUUID, secret string,
+	logger *log.Logger,
+) {
+	invCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
+	defer cancel()
+
+	items, err := inventory.Collect(invCtx)
+	if err != nil {
+		logger.Printf("inventory collect warning: %v", err)
+		return
+	}
+	hash := inventory.Hash(items)
+	if strings.EqualFold(strings.TrimSpace(st.InventoryHash), strings.TrimSpace(hash)) {
+		logger.Printf("inventory unchanged: count=%d", len(items))
+		return
+	}
+
+	err = client.SubmitInventory(invCtx, agentUUID, secret, api.InventoryRequest{
+		InventoryHash: hash,
+		SoftwareCount: len(items),
+		Items:         items,
+	})
+	if err != nil {
+		logger.Printf("inventory submit warning: %v", err)
+		return
+	}
+	st.InventoryHash = hash
+	if err := state.Save(statePath, st); err != nil {
+		logger.Printf("inventory state save warning: %v", err)
+	}
+	logger.Printf("inventory submitted: count=%d", len(items))
 }

@@ -847,3 +847,61 @@ Not:
 - Test host:
   - `/tmp/ac_task_ok.txt` guncellendi (`2026-03-03T22:13:10Z`)
   - `/tmp/ac-live/downloads` bos
+
+## 2026-03-03 - Inventory Submit Live Validation (Phase-2 Alignment)
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test server URL: `http://10.6.100.170:8000`
+- Agent build:
+  - Linux package envanterini `dpkg-query` ile toplayip `/api/v1/agent/inventory` endpoint'ine gonderen surum
+
+### Result
+
+- Inventory collect: OK
+- Inventory submit: OK (`POST /api/v1/agent/inventory 200`)
+- Server agent kaydi guncellendi:
+  - `software_count=1659`
+  - `inventory_hash` dolu
+
+### Evidence
+
+- Agent runtime log (`/tmp/ac-live/run_inventory.log`):
+  - `inventory submitted: count=1659`
+- Server journal (`appcenter` unit):
+  - `10.6.60.88 -> POST /api/v1/agent/inventory 200 OK`
+- Server DB (`agents`):
+  - `uuid=79001ca1-70cb-4734-8f35-233bb38aec9a`
+  - `software_count=1659`
+  - `inventory_hash=e56135917cca0193...`
+
+## 2026-03-03 - Inventory Unchanged + Install Regression Smoke
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test server URL: `http://10.6.100.170:8000`
+- Agent build:
+  - inventory hash cache'li (degismediyse yeniden submit etmeyen) surum
+
+### Result
+
+- Heartbeat'te inventory hash degismedigi icin yeniden submit edilmedi: OK
+  - Log: `inventory unchanged: count=1659`
+- Ayni calismada install task akis regression smoke: OK (`task_id=44`)
+
+### Evidence
+
+- Agent runtime log (`/tmp/ac-live/run_inventory_regression.log`):
+  - `inventory unchanged: count=1659`
+  - `task=44 start install: app_id=11 version=0.0.2 priority=8 force_update=false`
+  - `task=44 install success`
+- Server DB (`task_history`):
+  - `id=44`, `status=success`, `message=Install completed`, `exit_code=0`
+- Server journal (`appcenter` unit):
+  - `GET /api/v1/agent/download/11` `200 OK`
+  - `POST /api/v1/agent/task/44/status` callbacklari `200 OK`
+- Test host:
+  - `/tmp/ac_task_ok.txt` guncellendi (`2026-03-03T22:19:31Z`)
+  - `/tmp/ac-live/downloads` bos

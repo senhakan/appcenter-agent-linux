@@ -104,12 +104,35 @@ type TaskStatusRequest struct {
 	Error               string `json:"error,omitempty"`
 }
 
+type SoftwareItem struct {
+	Name            string `json:"name"`
+	Version         string `json:"version,omitempty"`
+	Publisher       string `json:"publisher,omitempty"`
+	InstallDate     string `json:"install_date,omitempty"`
+	EstimatedSizeKB int    `json:"estimated_size_kb,omitempty"`
+	Architecture    string `json:"architecture,omitempty"`
+}
+
+type InventoryRequest struct {
+	InventoryHash string         `json:"inventory_hash"`
+	SoftwareCount int            `json:"software_count"`
+	Items         []SoftwareItem `json:"items"`
+}
+
 func (c *Client) Register(ctx context.Context, req RegisterRequest) (*RegisterResponse, error) {
 	var out RegisterResponse
 	if err := c.postJSON(ctx, "/api/v1/agent/register", req, nil, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
+}
+
+func (c *Client) SubmitInventory(ctx context.Context, agentUUID, secret string, req InventoryRequest) error {
+	headers := map[string]string{
+		"X-Agent-UUID":   agentUUID,
+		"X-Agent-Secret": secret,
+	}
+	return c.postJSON(ctx, "/api/v1/agent/inventory", req, headers, nil)
 }
 
 func (c *Client) Heartbeat(ctx context.Context, uuid, secret string, req HeartbeatRequest) (*HeartbeatResponse, error) {

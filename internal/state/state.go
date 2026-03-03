@@ -15,6 +15,7 @@ type ProcessedTask struct {
 type AgentState struct {
 	UUID           string          `json:"uuid"`
 	SecretKey      string          `json:"secret_key"`
+	InventoryHash  string          `json:"inventory_hash,omitempty"`
 	ProcessedTasks []ProcessedTask `json:"processed_tasks,omitempty"`
 }
 
