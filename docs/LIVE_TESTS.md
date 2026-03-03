@@ -1081,3 +1081,61 @@ Not:
 - Test host:
   - `/tmp/ac_task_ok.txt` guncellendi (`2026-03-03T22:32:36Z`)
   - `/tmp/ac-live/downloads` bos
+
+## 2026-03-03 - IPC Store List Action Live Validation
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test setup:
+  - Agent calisirken Unix socket uzerinden ardarda iki istek gonderildi:
+    - `{\"action\":\"store_list\"}`
+    - `{\"action\":\"store_install\",\"app_id\":11}`
+  - Socket: `/tmp/ac-live/ipc.sock`
+
+### Result
+
+- IPC `store_list` action: OK
+  - Store listesi socket response `data` alaninda dondu.
+- IPC `store_install` action: OK (onceki davranis korunuyor)
+  - `already_installed` cevabi alindi.
+
+### Evidence
+
+- IPC output (`/tmp/ac-live/ipc_storelist.out`):
+  - `STORE_LIST={"status":"ok","message":"store apps fetched: 1","data":[{"id":11,...}]}`
+  - `STORE_INSTALL={"status":"already_installed","message":"Application already installed"}`
+- Server journal (`appcenter` unit):
+  - `GET /api/v1/agent/store 200 OK`
+  - `POST /api/v1/agent/store/11/install 200 OK`
+- Agent runtime log:
+  - `ipc server listening: /tmp/ac-live/ipc.sock`
+
+## 2026-03-03 - Normal Flow Regression Smoke (Post IPC Store List)
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test server URL: `http://10.6.100.170:8000`
+- Agent build:
+  - IPC `store_list` + `store_install` aksiyonlu surum
+
+### Result
+
+- Canli install task akis smoke: OK (`task_id=48`)
+- IPC aktif + store aksiyonlari aktifken install akisi regressionsuz: OK
+
+### Evidence
+
+- Agent runtime log (`/tmp/ac-live/run_storelist_regression.log`):
+  - `ipc server listening: /tmp/ac-live/ipc.sock`
+  - `task=48 start install: app_id=11 version=0.0.2 priority=8 force_update=false`
+  - `task=48 install success`
+- Server DB (`task_history`):
+  - `id=48`, `status=success`, `message=Install completed`, `exit_code=0`
+- Server journal (`appcenter` unit):
+  - `GET /api/v1/agent/download/11` `200 OK`
+  - `POST /api/v1/agent/task/48/status` callbacklari `200 OK`
+- Test host:
+  - `/tmp/ac_task_ok.txt` guncellendi (`2026-03-03T22:36:33Z`)
+  - `/tmp/ac-live/downloads` bos

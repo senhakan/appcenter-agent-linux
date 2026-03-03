@@ -24,6 +24,7 @@ type Response struct {
 	Status  string `json:"status"`
 	Message string `json:"message,omitempty"`
 	Error   string `json:"error,omitempty"`
+	Data    any    `json:"data,omitempty"`
 }
 
 type HandlerFunc func(req Request) Response

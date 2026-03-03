@@ -127,6 +127,20 @@ type MessageResponse struct {
 	Message string `json:"message"`
 }
 
+type StoreApp struct {
+	ID               int    `json:"id"`
+	DisplayName      string `json:"display_name"`
+	Version          string `json:"version"`
+	Installed        bool   `json:"installed"`
+	InstallState     string `json:"install_state,omitempty"`
+	InstalledVersion string `json:"installed_version,omitempty"`
+	CanUninstall     bool   `json:"can_uninstall"`
+}
+
+type StoreResponse struct {
+	Apps []StoreApp `json:"apps"`
+}
+
 func (c *Client) Register(ctx context.Context, req RegisterRequest) (*RegisterResponse, error) {
 	var out RegisterResponse
 	if err := c.postJSON(ctx, "/api/v1/agent/register", req, nil, &out); err != nil {
@@ -151,6 +165,18 @@ func (c *Client) RequestStoreInstall(ctx context.Context, agentUUID, secret stri
 	path := fmt.Sprintf("/api/v1/agent/store/%d/install", appID)
 	var out MessageResponse
 	if err := c.postJSON(ctx, path, map[string]any{}, headers, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) GetStore(ctx context.Context, agentUUID, secret string) (*StoreResponse, error) {
+	headers := map[string]string{
+		"X-Agent-UUID":   agentUUID,
+		"X-Agent-Secret": secret,
+	}
+	var out StoreResponse
+	if err := c.getJSON(ctx, "/api/v1/agent/store", headers, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
