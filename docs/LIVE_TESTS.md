@@ -816,3 +816,34 @@ Not:
 - Test host:
   - `/tmp/ac_task_ok.txt` guncellendi (`2026-03-03T22:10:43Z`)
   - `/tmp/ac-live/downloads` bos
+
+## 2026-03-03 - Command Start Log Enrichment Regression Smoke
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test server URL: `http://10.6.100.170:8000`
+- Agent build:
+  - task baslangicinda komut ozeti loglayan surum (`app_id`, `version`, `priority`, `force_update`)
+
+### Result
+
+- Canli install task akis smoke: OK (`task_id=43`)
+- Yeni start log satiri beklendigi gibi gorundu: OK
+  - `task=43 start install: app_id=11 version=0.0.2 priority=8 force_update=false`
+- Download/Install/Success zinciri regressionsuz: OK
+
+### Evidence
+
+- Agent runtime log:
+  - `task=43 start install: app_id=11 version=0.0.2 priority=8 force_update=false`
+  - `task=43 download ok: bytes=134 path=/tmp/ac-live/downloads/linux_install_ok.exe`
+  - `task=43 install success`
+- Server DB (`task_history`):
+  - `id=43`, `status=success`, `message=Install completed`, `exit_code=0`
+- Server journal (`appcenter` unit):
+  - `GET /api/v1/agent/download/11` `200 OK`
+  - `POST /api/v1/agent/task/43/status` callbacklari `200 OK`
+- Test host:
+  - `/tmp/ac_task_ok.txt` guncellendi (`2026-03-03T22:13:10Z`)
+  - `/tmp/ac-live/downloads` bos
