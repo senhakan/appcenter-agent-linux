@@ -138,6 +138,7 @@ func main() {
 	taskGuard.Seed(st.ProcessedTasks)
 	persistTaskDeduper(cfg.Paths.StateFile, st, taskGuard, logger)
 	var nextInventorySync time.Time
+	inventoryInterval := 30 * time.Minute
 
 	sendHeartbeat := func(reason string) {
 		info = system.CollectHostInfo()
@@ -172,6 +173,7 @@ func main() {
 			CurrentStatus: "Idle",
 			AppsChanged:   false,
 			InstalledApps: []any{},
+			InventoryHash: st.InventoryHash,
 			Platform:      info.Platform,
 		})
 		if hbErr != nil {
@@ -179,9 +181,20 @@ func main() {
 			return
 		}
 		logger.Printf("%s heartbeat ok: status=%s commands=%d", reason, hb.Status, len(hb.Commands))
-		if time.Now().After(nextInventorySync) {
-			syncInventory(ctx, client, cfg.Paths.StateFile, st, st.UUID, st.SecretKey, logger)
-			nextInventorySync = time.Now().Add(30 * time.Minute)
+		if hb.Config.InventoryScanIntervalMin > 0 {
+			inventoryInterval = time.Duration(hb.Config.InventoryScanIntervalMin) * time.Minute
+		}
+		if hb.Config.InventorySyncRequired {
+			nextInventorySync = time.Time{}
+		}
+		now := time.Now()
+		if now.After(nextInventorySync) {
+			ok := syncInventory(ctx, client, cfg.Paths.StateFile, st, st.UUID, st.SecretKey, logger)
+			if ok {
+				nextInventorySync = now.Add(inventoryInterval)
+			} else {
+				nextInventorySync = now.Add(2 * time.Minute)
+			}
 		}
 		if hb.Config.HeartbeatIntervalSec > 0 && hb.Config.HeartbeatIntervalSec != interval {
 			interval = hb.Config.HeartbeatIntervalSec
@@ -619,19 +632,19 @@ func syncInventory(
 	st *state.AgentState,
 	agentUUID, secret string,
 	logger *log.Logger,
-) {
+) bool {
 	invCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()
 
 	items, err := inventory.Collect(invCtx)
 	if err != nil {
 		logger.Printf("inventory collect warning: %v", err)
-		return
+		return false
 	}
 	hash := inventory.Hash(items)
 	if strings.EqualFold(strings.TrimSpace(st.InventoryHash), strings.TrimSpace(hash)) {
 		logger.Printf("inventory unchanged: count=%d", len(items))
-		return
+		return true
 	}
 
 	err = client.SubmitInventory(invCtx, agentUUID, secret, api.InventoryRequest{
@@ -641,11 +654,12 @@ func syncInventory(
 	})
 	if err != nil {
 		logger.Printf("inventory submit warning: %v", err)
-		return
+		return false
 	}
 	st.InventoryHash = hash
 	if err := state.Save(statePath, st); err != nil {
 		logger.Printf("inventory state save warning: %v", err)
 	}
 	logger.Printf("inventory submitted: count=%d", len(items))
+	return true
 }

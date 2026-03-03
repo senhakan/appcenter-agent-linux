@@ -61,11 +61,14 @@ type HeartbeatRequest struct {
 	CurrentStatus string `json:"current_status,omitempty"`
 	AppsChanged   bool   `json:"apps_changed"`
 	InstalledApps []any  `json:"installed_apps"`
+	InventoryHash string `json:"inventory_hash,omitempty"`
 	Platform      string `json:"platform,omitempty"`
 }
 
 type HeartbeatConfig struct {
-	HeartbeatIntervalSec int `json:"heartbeat_interval_sec"`
+	HeartbeatIntervalSec     int  `json:"heartbeat_interval_sec"`
+	InventorySyncRequired    bool `json:"inventory_sync_required"`
+	InventoryScanIntervalMin int  `json:"inventory_scan_interval_min"`
 }
 
 type HeartbeatResponse struct {

@@ -905,3 +905,69 @@ Not:
 - Test host:
   - `/tmp/ac_task_ok.txt` guncellendi (`2026-03-03T22:19:31Z`)
   - `/tmp/ac-live/downloads` bos
+
+## 2026-03-03 - Heartbeat Inventory Hash + Server-Driven Sync (Controlled Mock)
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test setup:
+  - Lokal mock API (`127.0.0.1:18088`) heartbeat config'inde:
+    - ilk heartbeat: `inventory_sync_required=true`
+    - takip heartbeat'ler: `inventory_sync_required=false`
+    - `inventory_scan_interval_min=60`
+  - Agent mock config ile foreground calistirildi.
+
+### Result
+
+- Heartbeat payload'ta `inventory_hash` alaninin tasindigi dogrulandi:
+  - ilk heartbeat: `inventory_hash=null` (submit oncesi)
+  - sonraki heartbeat'ler: guncel hash degeri dolu
+- Server-driven forced sync dogrulandi:
+  - ilk heartbeat sonrasi inventory submit tetiklendi (`count=1659`)
+
+### Evidence
+
+- Agent runtime log (`/tmp/ac-live/run_invctl.log`):
+  - `inventory submitted: count=1659`
+- Mock event log (`/tmp/ac-live/mock_inventory_control_events.jsonl`):
+  - heartbeat `inventory_hash` degerleri:
+    - `null`
+    - `e56135917cca0193c5e4b968288a2d98d9bb65f81e13af4e73ba56816771df4b`
+    - `e56135917cca0193c5e4b968288a2d98d9bb65f81e13af4e73ba56816771df4b`
+  - inventory post:
+    - `hash=e5613591...`, `software_count=1659`
+
+Not:
+- Bu test, production servera dokunmadan kontrollu canli host ortaminda yapilmistir.
+
+## 2026-03-03 - Normal Flow Regression Smoke (Post Inventory-Hash Heartbeat)
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test server URL: `http://10.6.100.170:8000`
+- Agent build:
+  - heartbeat'e `inventory_hash` ekleyen ve `inventory_sync_required` config'ini dikkate alan surum
+
+### Result
+
+- Canli install task akis smoke: OK (`task_id=45`)
+- Inventory hash cache davranisi korundu: OK
+  - Log: `inventory unchanged: count=1659`
+- Download/Install/Success zinciri regressionsuz: OK
+
+### Evidence
+
+- Agent runtime log (`/tmp/ac-live/run_invhash_regression.log`):
+  - `inventory unchanged: count=1659`
+  - `task=45 start install: app_id=11 version=0.0.2 priority=8 force_update=false`
+  - `task=45 install success`
+- Server DB (`task_history`):
+  - `id=45`, `status=success`, `message=Install completed`, `exit_code=0`
+- Server journal (`appcenter` unit):
+  - `GET /api/v1/agent/download/11` `200 OK`
+  - `POST /api/v1/agent/task/45/status` callbacklari `200 OK`
+- Test host:
+  - `/tmp/ac_task_ok.txt` guncellendi (`2026-03-03T22:23:11Z`)
+  - `/tmp/ac-live/downloads` bos
