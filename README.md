@@ -33,3 +33,5 @@ Bu dizin, AppCenter Linux agent gelistirme ana proje dizinidir.
 - Not: Linux agent canli testleri bu baglanti uzerinden yurutulecektir.
 
 # appcenter-agent-linux
+
+- Live test kayitlari: 
