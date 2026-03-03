@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -66,6 +67,11 @@ type HeartbeatResponse struct {
 	Config HeartbeatConfig `json:"config"`
 }
 
+type SignalResponse struct {
+	Status string `json:"status"`
+	Reason string `json:"reason,omitempty"`
+}
+
 func (c *Client) Register(ctx context.Context, req RegisterRequest) (*RegisterResponse, error) {
 	var out RegisterResponse
 	if err := c.postJSON(ctx, "/api/v1/agent/register", req, nil, &out); err != nil {
@@ -81,6 +87,24 @@ func (c *Client) Heartbeat(ctx context.Context, uuid, secret string, req Heartbe
 	}
 	var out HeartbeatResponse
 	if err := c.postJSON(ctx, "/api/v1/agent/heartbeat", req, headers, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) WaitForSignal(ctx context.Context, uuid, secret string, timeoutSec int) (*SignalResponse, error) {
+	if timeoutSec <= 0 {
+		timeoutSec = 55
+	}
+	q := url.Values{}
+	q.Set("timeout", fmt.Sprintf("%d", timeoutSec))
+	path := "/api/v1/agent/signal?" + q.Encode()
+	headers := map[string]string{
+		"X-Agent-UUID":   uuid,
+		"X-Agent-Secret": secret,
+	}
+	var out SignalResponse
+	if err := c.getJSON(ctx, path, headers, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -107,6 +131,31 @@ func (c *Client) postJSON(ctx context.Context, path string, body any, headers ma
 	resBody, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("%s %s failed: HTTP %d: %s", http.MethodPost, path, resp.StatusCode, strings.TrimSpace(string(resBody)))
+	}
+	if out != nil {
+		if err := json.Unmarshal(resBody, out); err != nil {
+			return fmt.Errorf("decode response: %w", err)
+		}
+	}
+	return nil
+}
+
+func (c *Client) getJSON(ctx context.Context, path string, headers map[string]string, out any) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+path, nil)
+	if err != nil {
+		return fmt.Errorf("build request: %w", err)
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	resBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("%s %s failed: HTTP %d: %s", http.MethodGet, path, resp.StatusCode, strings.TrimSpace(string(resBody)))
 	}
 	if out != nil {
 		if err := json.Unmarshal(resBody, out); err != nil {

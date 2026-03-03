@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"flag"
 	"os/signal"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -61,6 +62,9 @@ func main() {
 
 	client := api.NewClient(cfg.Server.URL)
 	info := system.CollectHostInfo()
+	triggerCh := make(chan struct{}, 1)
+	var hasSecret atomic.Bool
+	hasSecret.Store(st.SecretKey != "")
 
 	reg, err := client.Register(ctx, api.RegisterRequest{
 		UUID:          st.UUID,
@@ -80,8 +84,35 @@ func main() {
 	} else {
 		st.SecretKey = reg.SecretKey
 		_ = state.Save(cfg.Paths.StateFile, st)
+		hasSecret.Store(true)
 		logger.Printf("register ok: uuid=%s", st.UUID)
 	}
+
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+			if !hasSecret.Load() {
+				time.Sleep(2 * time.Second)
+				continue
+			}
+			resp, sigErr := client.WaitForSignal(ctx, st.UUID, st.SecretKey, 55)
+			if sigErr != nil {
+				logger.Printf("signal wait failed: %v", sigErr)
+				time.Sleep(2 * time.Second)
+				continue
+			}
+			if resp != nil && resp.Status == "signal" {
+				select {
+				case triggerCh <- struct{}{}:
+				default:
+				}
+			}
+		}
+	}()
 
 	interval := cfg.Heartbeat.IntervalSec
 	if interval <= 0 {
@@ -117,6 +148,7 @@ func main() {
 				}
 				st.SecretKey = reg.SecretKey
 				_ = state.Save(cfg.Paths.StateFile, st)
+				hasSecret.Store(true)
 			}
 			hb, hbErr := client.Heartbeat(ctx, st.UUID, st.SecretKey, api.HeartbeatRequest{
 				Hostname:      info.Hostname,
@@ -139,6 +171,25 @@ func main() {
 				ticker.Reset(time.Duration(interval) * time.Second)
 				logger.Printf("heartbeat interval updated: %ds", interval)
 			}
+		case <-triggerCh:
+			info = system.CollectHostInfo()
+			hb, hbErr := client.Heartbeat(ctx, st.UUID, st.SecretKey, api.HeartbeatRequest{
+				Hostname:      info.Hostname,
+				IPAddress:     info.IPAddress,
+				OSUser:        system.CurrentOSUser(),
+				AgentVersion:  cfg.Agent.Version,
+				DiskFreeGB:    info.DiskFreeGB,
+				CurrentStatus: "Idle",
+				AppsChanged:   false,
+				InstalledApps: []any{},
+				Platform:      info.Platform,
+			})
+			if hbErr != nil {
+				logger.Printf("signal-triggered heartbeat failed: %v", hbErr)
+				continue
+			}
+			logger.Printf("signal-triggered heartbeat ok: status=%s", hb.Status)
+			ticker.Reset(time.Duration(interval) * time.Second)
 		}
 	}
 }
