@@ -1,0 +1,20 @@
+server:
+  url: "http://127.0.0.1:8000"
+
+agent:
+  uuid: ""
+  secret_key: ""
+  version: "0.1.0"
+
+heartbeat:
+  interval_sec: 60
+
+logging:
+  file: "/var/log/appcenter-agent/agent.log"
+
+ipc:
+  socket_path: "/var/run/appcenter-agent/ipc.sock"
+
+remote_support:
+  enabled: false
+  approval_timeout_sec: 120
