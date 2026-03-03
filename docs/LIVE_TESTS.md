@@ -53,4 +53,18 @@
   - `2026/03/03 20:50:22 signal-triggered heartbeat ok: status=ok`
 
 Not:
-- Bu test sirasinda sunucuda `REMOTE_SUPPORT_ENABLED` ayari gecici olarak `true` yapilip test bitiminde tekrar `false` degerine geri alinmistir.
+- Bu test sirasinda sunucuda `REMOTE_SUPPORT_ENABLED` ayari `true` yapilmistir.
+- 2026-03-03 itibariyla operasyon karari: test/canli Linux agent denemeleri icin bu ayar `true` olarak korunur.
+
+## 2026-03-03 - Test Host Tooling (10.6.60.88)
+
+- Host: `10.6.60.88` (`ubuntu`)
+- Kurulan/teyit edilen araclar:
+  - `curl 8.5.0`
+  - `ripgrep 14.1.0` (`rg`)
+  - `jq 1.7`
+- Kurulum yontemi:
+  - `sudo apt-get update -y`
+  - `sudo apt-get install -y curl ripgrep jq`
+- Operasyon notu:
+  - Bu test hostunda Linux agent canli testlerini hizlandirmak icin gerekli ek araclari onay beklemeden kurma yetkisi vardir.
