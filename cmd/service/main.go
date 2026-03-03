@@ -302,8 +302,25 @@ func runInstallCommand(ctx context.Context, client *api.Client, cfg *config.Conf
 }
 
 func reportTaskStatus(ctx context.Context, client *api.Client, agentUUID, secret string, taskID int, req api.TaskStatusRequest, logger *log.Logger) {
-	if err := client.ReportTaskStatus(ctx, agentUUID, secret, taskID, req); err != nil {
-		logger.Printf("task=%d status report warning: status=%s progress=%d err=%v", taskID, req.Status, req.Progress, err)
+	const maxAttempts = 3
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		err := client.ReportTaskStatus(ctx, agentUUID, secret, taskID, req)
+		if err == nil {
+			if attempt > 1 {
+				logger.Printf("task=%d status report recovered: status=%s progress=%d attempt=%d", taskID, req.Status, req.Progress, attempt)
+			}
+			return
+		}
+		logger.Printf("task=%d status report warning: status=%s progress=%d attempt=%d err=%v", taskID, req.Status, req.Progress, attempt, err)
+		if attempt == maxAttempts {
+			return
+		}
+		backoff := time.Duration(attempt*300) * time.Millisecond
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(backoff):
+		}
 	}
 }
 

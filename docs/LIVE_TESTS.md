@@ -227,3 +227,34 @@ Not:
 - Test host:
   - `/tmp/ac_task_ok.txt` guncellendi (`2026-03-03T21:26:26Z`)
   - `/tmp/ac-live/downloads` bos
+
+## 2026-03-03 - Task Status Retry/Backoff Retest
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test server URL: `http://10.6.100.170:8000`
+- Agent build:
+  - task status post icin 3 deneme + artan kisa backoff (300ms, 600ms) ekli surum
+
+### Result
+
+- Canli install task akis smoke: OK (`task_id=33`)
+- Task status callback zinciri sorunsuz: OK (4 adet status `200`)
+- Retry eklenmesine ragmen normal akista regressionsuz: OK
+- Download cleanup davranisi korundu: OK
+
+### Evidence
+
+- Agent runtime log:
+  - `periodic heartbeat ok: status=ok commands=1`
+  - `task=33 download ok: bytes=134 path=/tmp/ac-live/downloads/linux_install_ok.exe`
+  - `task=33 install success`
+- Server journal (`appcenter` unit):
+  - `POST /api/v1/agent/task/33/status` ayni task icin 4 kez `200 OK`
+  - `GET /api/v1/agent/download/11` `200 OK`
+- Server DB (`task_history`):
+  - `id=33`, `status=success`, `message=Install completed`, `exit_code=0`
+- Test host:
+  - `/tmp/ac_task_ok.txt` guncellendi (`2026-03-03T21:28:48Z`)
+  - `/tmp/ac-live/downloads` bos
