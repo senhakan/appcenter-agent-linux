@@ -174,12 +174,12 @@ func main() {
 		for _, cmd := range hb.Commands {
 			if strings.ToLower(strings.TrimSpace(cmd.Action)) != "install" {
 				logger.Printf("task=%d unsupported action: %s", cmd.TaskID, strings.TrimSpace(cmd.Action))
-				_ = client.ReportTaskStatus(ctx, st.UUID, st.SecretKey, cmd.TaskID, api.TaskStatusRequest{
+				reportTaskStatus(ctx, client, st.UUID, st.SecretKey, cmd.TaskID, api.TaskStatusRequest{
 					Status:   "failed",
 					Progress: 100,
 					Message:  "Unsupported command action",
 					Error:    fmt.Sprintf("unsupported action: %s", strings.TrimSpace(cmd.Action)),
-				})
+				}, logger)
 				continue
 			}
 			runInstallCommand(ctx, client, cfg, st.UUID, st.SecretKey, cmd, logger)
@@ -212,24 +212,24 @@ func newUUIDLike() string {
 
 func runInstallCommand(ctx context.Context, client *api.Client, cfg *config.Config, agentUUID, secret string, cmd api.Command, logger *log.Logger) {
 	start := time.Now()
-	_ = client.ReportTaskStatus(ctx, agentUUID, secret, cmd.TaskID, api.TaskStatusRequest{
+	reportTaskStatus(ctx, client, agentUUID, secret, cmd.TaskID, api.TaskStatusRequest{
 		Status:   "downloading",
 		Progress: 10,
 		Message:  "Download started",
-	})
+	}, logger)
 
 	fileName := buildDownloadFilename(cmd)
 	outPath, n, err := client.DownloadToFile(ctx, agentUUID, secret, cmd.DownloadURL, cfg.Download.TempDir, fileName)
 	downloadSec := int(time.Since(start).Seconds())
 	if err != nil {
 		logger.Printf("task=%d download failed: %v", cmd.TaskID, err)
-		_ = client.ReportTaskStatus(ctx, agentUUID, secret, cmd.TaskID, api.TaskStatusRequest{
+		reportTaskStatus(ctx, client, agentUUID, secret, cmd.TaskID, api.TaskStatusRequest{
 			Status:              "failed",
 			Progress:            100,
 			Message:             "Download failed",
 			Error:               err.Error(),
 			DownloadDurationSec: downloadSec,
-		})
+		}, logger)
 		return
 	}
 	if n > 0 {
@@ -237,28 +237,28 @@ func runInstallCommand(ctx context.Context, client *api.Client, cfg *config.Conf
 	}
 	if err := utils.VerifySHA256(outPath, cmd.FileHash); err != nil {
 		logger.Printf("task=%d hash verify failed: %v", cmd.TaskID, err)
-		_ = client.ReportTaskStatus(ctx, agentUUID, secret, cmd.TaskID, api.TaskStatusRequest{
+		reportTaskStatus(ctx, client, agentUUID, secret, cmd.TaskID, api.TaskStatusRequest{
 			Status:              "failed",
 			Progress:            100,
 			Message:             "Hash verification failed",
 			Error:               err.Error(),
 			DownloadDurationSec: downloadSec,
-		})
+		}, logger)
 		return
 	}
 
-	_ = client.ReportTaskStatus(ctx, agentUUID, secret, cmd.TaskID, api.TaskStatusRequest{
+	reportTaskStatus(ctx, client, agentUUID, secret, cmd.TaskID, api.TaskStatusRequest{
 		Status:              "downloading",
 		Progress:            80,
 		Message:             "Download completed",
 		DownloadDurationSec: downloadSec,
-	})
-	_ = client.ReportTaskStatus(ctx, agentUUID, secret, cmd.TaskID, api.TaskStatusRequest{
+	}, logger)
+	reportTaskStatus(ctx, client, agentUUID, secret, cmd.TaskID, api.TaskStatusRequest{
 		Status:              "downloading",
 		Progress:            90,
 		Message:             "Install started",
 		DownloadDurationSec: downloadSec,
-	})
+	}, logger)
 
 	installStart := time.Now()
 	installCtx, cancel := context.WithTimeout(ctx, time.Duration(cfg.Install.TimeoutSec)*time.Second)
@@ -273,7 +273,7 @@ func runInstallCommand(ctx context.Context, client *api.Client, cfg *config.Conf
 		}
 		code := exitCode
 		logger.Printf("task=%d install failed: %s", cmd.TaskID, msg)
-		_ = client.ReportTaskStatus(ctx, agentUUID, secret, cmd.TaskID, api.TaskStatusRequest{
+		reportTaskStatus(ctx, client, agentUUID, secret, cmd.TaskID, api.TaskStatusRequest{
 			Status:              "failed",
 			Progress:            100,
 			Message:             "Install failed",
@@ -281,12 +281,12 @@ func runInstallCommand(ctx context.Context, client *api.Client, cfg *config.Conf
 			ExitCode:            &code,
 			DownloadDurationSec: downloadSec,
 			InstallDurationSec:  installSec,
-		})
+		}, logger)
 		return
 	}
 
 	successCode := 0
-	_ = client.ReportTaskStatus(ctx, agentUUID, secret, cmd.TaskID, api.TaskStatusRequest{
+	reportTaskStatus(ctx, client, agentUUID, secret, cmd.TaskID, api.TaskStatusRequest{
 		Status:              "success",
 		Progress:            100,
 		Message:             "Install completed",
@@ -294,11 +294,17 @@ func runInstallCommand(ctx context.Context, client *api.Client, cfg *config.Conf
 		InstalledVersion:    cmd.AppVersion,
 		DownloadDurationSec: downloadSec,
 		InstallDurationSec:  installSec,
-	})
+	}, logger)
 	if err := os.Remove(outPath); err != nil {
 		logger.Printf("task=%d cleanup warning: %v", cmd.TaskID, err)
 	}
 	logger.Printf("task=%d install success", cmd.TaskID)
+}
+
+func reportTaskStatus(ctx context.Context, client *api.Client, agentUUID, secret string, taskID int, req api.TaskStatusRequest, logger *log.Logger) {
+	if err := client.ReportTaskStatus(ctx, agentUUID, secret, taskID, req); err != nil {
+		logger.Printf("task=%d status report warning: status=%s progress=%d err=%v", taskID, req.Status, req.Progress, err)
+	}
 }
 
 func buildDownloadFilename(cmd api.Command) string {

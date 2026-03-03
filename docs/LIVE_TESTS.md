@@ -195,3 +195,35 @@ Not:
 - Test host:
   - `/tmp/ac_task_ok.txt` guncellendi (`2026-03-03T21:23:27Z`)
   - `/tmp/ac-live/downloads` bos (paket temizligi devam ediyor)
+
+## 2026-03-03 - Task Status Reporting Hardening Retest
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test server URL: `http://10.6.100.170:8000`
+- Agent build:
+  - task status gonderimlerini tek helper uzerinden yapan
+  - status post hatalarinda log warning ureten surum
+
+### Result
+
+- Canli install task akis smoke: OK (`task_id=32`)
+- Task status adimlari beklendigi gibi production servera iletildi: OK
+  - heartbeat + download + 4 adet status callback
+- Download cleanup davranisi korundu: OK
+
+### Evidence
+
+- Agent runtime log:
+  - `periodic heartbeat ok: status=ok commands=1`
+  - `task=32 download ok: bytes=134 path=/tmp/ac-live/downloads/linux_install_ok.exe`
+  - `task=32 install success`
+- Server journal (`appcenter` unit):
+  - `POST /api/v1/agent/task/32/status` ayni task icin 4 kez `200 OK`
+  - `GET /api/v1/agent/download/11` `200 OK`
+- Server DB (`task_history`):
+  - `id=32`, `status=success`, `message=Install completed`, `exit_code=0`
+- Test host:
+  - `/tmp/ac_task_ok.txt` guncellendi (`2026-03-03T21:26:26Z`)
+  - `/tmp/ac-live/downloads` bos
