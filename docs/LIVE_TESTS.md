@@ -1790,3 +1790,52 @@ Not:
   - `linux agent runtime: ipc=/tmp/ac-live/ipc.sock remote_support_enabled=true`
   - `linux agent install queue: capacity=32 workers=1`
   - `periodic heartbeat ok: status=ok commands=0`
+
+## 2026-03-03 - Remote Support Runtime Pending Approval Timeout Guard
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test setup:
+  - Lokal mock API (`127.0.0.1:18090`) ile `remote_support_enabled=true` heartbeat akisi saglandi.
+  - Agent config: `heartbeat.interval_sec=2`, `remote_support.approval_timeout_sec=3`.
+  - IPC ile `remote_support_session_request(session_id=8701)` tetiklendi ve bekletildi.
+
+### Result
+
+- Runtime pending approval timeout guard: OK
+  - Session otomatik `rejected` oldu (`last_error="approval timeout"`).
+- Server callback: OK
+  - Agent `approve:false` callback gonderdi.
+
+### Evidence
+
+- IPC outputs:
+  - `REQ ... "session":{"state":"pending_approval","session_id":8701,...}`
+  - `STATUS ... "session":{"state":"rejected","session_id":8701,...,"last_error":"approval timeout"}`
+- Mock event ozeti (`/tmp/ac-live/mock_remote_support_runtime_timeout_events.jsonl`):
+  - `APPROVE_EVENTS=[('/api/v1/agent/remote-support/8701/approve', {'approved': False})]`
+- Agent runtime log (`/tmp/ac-live/run_remote_support_runtime_timeout.log`):
+  - `remote support session timed out waiting approval: session_id=8701`
+
+## 2026-03-03 - Production Smoke (Runtime Pending Timeout Guard Build)
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test server URL: `http://10.6.100.170:8000`
+- Test setup:
+  - `/tmp/ac-live/config.yaml` (`remote_support.enabled=true`) ile yeni build foreground calistirildi (`55s`).
+
+### Result
+
+- Production heartbeat akisi: OK
+- Install queue runtime logu korundu: OK
+- Bu kosuda yeni komut gelmedi (`commands=0`).
+
+### Evidence
+
+- Agent runtime log (`/tmp/ac-live/run_workers_prod.log`):
+  - `linux agent runtime: ipc=/tmp/ac-live/ipc.sock remote_support_enabled=true`
+  - `linux agent install queue: capacity=32 workers=1`
+  - `periodic heartbeat ok: status=ok commands=0`

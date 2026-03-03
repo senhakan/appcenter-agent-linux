@@ -446,6 +446,25 @@ func main() {
 				logger.Printf("remote support session terminated because feature disabled")
 			}
 		}
+		if remoteSupportAllowed {
+			cur := remoteSupportSession.Snapshot()
+			if cur.State == remotesupport.StatePending && cur.RequestedAtUnix > 0 {
+				deadline := cur.RequestedAtUnix + int64(cfg.RemoteSupport.ApprovalTimeoutSec)
+				if time.Now().Unix() > deadline {
+					remoteSupportSession.Reject("approval timeout")
+					if cur.SessionID > 0 {
+						callCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+						err := client.RemoteApprove(callCtx, st.UUID, st.SecretKey, cur.SessionID, false, 0)
+						cancel()
+						if err != nil {
+							logger.Printf("remote support timeout reject report warning: %v", err)
+						}
+					}
+					persistRemoteSupportSession()
+					logger.Printf("remote support session timed out waiting approval: session_id=%d", cur.SessionID)
+				}
+			}
+		}
 		if hb.RemoteSupportRequest != nil {
 			if !remoteSupportAllowed {
 				logger.Printf("remote support request ignored: feature disabled")
