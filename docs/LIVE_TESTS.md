@@ -358,3 +358,37 @@ Not:
 - Test host:
   - `/tmp/ac_task_ok.txt` guncellendi (`2026-03-03T21:38:39Z`)
   - `/tmp/ac-live/downloads` bos
+
+## 2026-03-03 - Duplicate Task Idempotency Live Test (Controlled Mock)
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test setup:
+  - Test host uzerinde lokal mock API (`127.0.0.1:18081`) calistirildi.
+  - Ilk iki heartbeat cevabinda ayni komut donduruldu:
+    - `task_id=777`, `action=install`, ayni download payload/hash
+  - Agent mock config ile foreground calistirildi.
+
+### Result
+
+- Ilk heartbeat:
+  - task normal calisti (`download + install success`)
+- Ikinci heartbeat:
+  - ayni task icin tekrar calistirma olmadi
+  - log: `task=777 duplicate command skipped`
+- Idempotency beklenen sekilde: OK
+
+### Evidence
+
+- Agent runtime log (`/tmp/ac-live/run_dup.log`):
+  - `2026/03/03 21:41:46 task=777 install success`
+  - `2026/03/03 21:41:51 task=777 duplicate command skipped`
+- Mock event log (`/tmp/ac-live/mock_dup_events.jsonl`):
+  - `task_status` callback sayisi: `4` (tek install akisinin adimlari)
+  - `download` endpoint cagrisi: `1` kez
+- Test host:
+  - `/tmp/ac_dup_task.txt` satir sayisi: `1` (komut tek kez calisti)
+
+Not:
+- Bu test, production servera dokunmadan kontrollu canli host ortaminda yapilmistir.

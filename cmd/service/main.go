@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -126,6 +127,7 @@ func main() {
 	}
 	ticker := time.NewTicker(time.Duration(interval) * time.Second)
 	defer ticker.Stop()
+	taskGuard := newTaskDeduper(30 * time.Minute)
 
 	sendHeartbeat := func(reason string) {
 		info = system.CollectHostInfo()
@@ -181,6 +183,10 @@ func main() {
 					Message:  "Unsupported command action",
 					Error:    fmt.Sprintf("unsupported action: %s", strings.TrimSpace(cmd.Action)),
 				}, logger)
+				continue
+			}
+			if !taskGuard.TryStart(cmd.TaskID) {
+				logger.Printf("task=%d duplicate command skipped", cmd.TaskID)
 				continue
 			}
 			runInstallCommand(ctx, client, cfg, st.UUID, st.SecretKey, cmd, logger)
@@ -399,4 +405,43 @@ func downloadWithRetry(
 		}
 	}
 	return "", 0, fmt.Errorf("download retry exhausted")
+}
+
+type taskDeduper struct {
+	ttl      time.Duration
+	mu       sync.Mutex
+	execTime map[int]time.Time
+}
+
+func newTaskDeduper(ttl time.Duration) *taskDeduper {
+	if ttl <= 0 {
+		ttl = 30 * time.Minute
+	}
+	return &taskDeduper{
+		ttl:      ttl,
+		execTime: make(map[int]time.Time),
+	}
+}
+
+func (d *taskDeduper) TryStart(taskID int) bool {
+	if taskID <= 0 {
+		return true
+	}
+	now := time.Now()
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.pruneLocked(now)
+	if t, ok := d.execTime[taskID]; ok && now.Sub(t) < d.ttl {
+		return false
+	}
+	d.execTime[taskID] = now
+	return true
+}
+
+func (d *taskDeduper) pruneLocked(now time.Time) {
+	for id, t := range d.execTime {
+		if now.Sub(t) >= d.ttl {
+			delete(d.execTime, id)
+		}
+	}
 }
