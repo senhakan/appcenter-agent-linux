@@ -22,6 +22,7 @@ import (
 	"appcenter-agent-linux/internal/config"
 	"appcenter-agent-linux/internal/installer"
 	"appcenter-agent-linux/internal/inventory"
+	"appcenter-agent-linux/internal/ipc"
 	"appcenter-agent-linux/internal/state"
 	"appcenter-agent-linux/internal/system"
 	"appcenter-agent-linux/pkg/utils"
@@ -101,6 +102,12 @@ func main() {
 		hasSecret.Store(true)
 		logger.Printf("register ok: uuid=%s", st.UUID)
 	}
+
+	go func() {
+		if err := ipc.Start(ctx, cfg.IPC.SocketPath, logger); err != nil && ctx.Err() == nil {
+			logger.Printf("ipc server stopped with error: %v", err)
+		}
+	}()
 
 	go func() {
 		for {

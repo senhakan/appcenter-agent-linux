@@ -971,3 +971,58 @@ Not:
 - Test host:
   - `/tmp/ac_task_ok.txt` guncellendi (`2026-03-03T22:23:11Z`)
   - `/tmp/ac-live/downloads` bos
+
+## 2026-03-03 - Unix Socket IPC Ping/Pong Live Validation
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test setup:
+  - Agent foreground calistirildi (`/tmp/ac-live/config.yaml`)
+  - IPC socket: `/tmp/ac-live/ipc.sock`
+  - Ayrica Python UNIX socket client ile `{\"action\":\"ping\"}` request gonderildi.
+
+### Result
+
+- IPC socket acilisi: OK
+  - Log: `ipc server listening: /tmp/ac-live/ipc.sock`
+- Socket request/response: OK
+  - Cevap: `{\"status\":\"ok\",\"message\":\"pong\"}`
+
+### Evidence
+
+- Test host:
+  - Socket tipi: `srw-rw-rw- ... /tmp/ac-live/ipc.sock`
+  - IPC cevap kaydi:
+    - `{"status":"ok","message":"pong"}`
+- Agent runtime log (`/tmp/ac-live/run_ipc_ping2.log`):
+  - `ipc server listening: /tmp/ac-live/ipc.sock`
+
+## 2026-03-03 - Normal Flow Regression Smoke (Post IPC Enablement)
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test server URL: `http://10.6.100.170:8000`
+- Agent build:
+  - Unix socket IPC server aktif + heartbeat inventory-hash/sync-hint iyilestirmeli surum
+
+### Result
+
+- Canli install task akis smoke: OK (`task_id=46`)
+- IPC aktifken install akisi regressionsuz: OK
+
+### Evidence
+
+- Agent runtime log (`/tmp/ac-live/run_ipc_regression.log`):
+  - `ipc server listening: /tmp/ac-live/ipc.sock`
+  - `task=46 start install: app_id=11 version=0.0.2 priority=8 force_update=false`
+  - `task=46 install success`
+- Server DB (`task_history`):
+  - `id=46`, `status=success`, `message=Install completed`, `exit_code=0`
+- Server journal (`appcenter` unit):
+  - `GET /api/v1/agent/download/11` `200 OK`
+  - `POST /api/v1/agent/task/46/status` callbacklari `200 OK`
+- Test host:
+  - `/tmp/ac_task_ok.txt` guncellendi (`2026-03-03T22:28:06Z`)
+  - `/tmp/ac-live/downloads` bos
