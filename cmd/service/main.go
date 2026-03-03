@@ -193,6 +193,15 @@ func main() {
 				return
 			case job := <-installQueue:
 				cmd := job.command
+				reportTaskStatus(ctx, client, st.UUID, st.SecretKey, cmd.TaskID, api.TaskStatusRequest{
+					Status:   "downloading",
+					Progress: 5,
+					Message:  "Queued for install",
+				}, logger)
+				logger.Printf(
+					"task=%d start install: app_id=%d version=%s priority=%d force_update=%t",
+					cmd.TaskID, cmd.AppID, strings.TrimSpace(cmd.AppVersion), cmd.Priority, cmd.ForceUpdate,
+				)
 				terminalReported := runInstallCommand(ctx, client, cfg, st.UUID, st.SecretKey, cmd, logger)
 				taskGuard.Finish(cmd.TaskID, terminalReported)
 				persistTaskDeduper(cfg.Paths.StateFile, st, taskGuard, logger)
@@ -293,10 +302,6 @@ func main() {
 				persistTaskDeduper(cfg.Paths.StateFile, st, taskGuard, logger)
 				continue
 			}
-			logger.Printf(
-				"task=%d start install: app_id=%d version=%s priority=%d force_update=%t",
-				cmd.TaskID, cmd.AppID, strings.TrimSpace(cmd.AppVersion), cmd.Priority, cmd.ForceUpdate,
-			)
 			select {
 			case installQueue <- installJob{command: cmd}:
 				logger.Printf("task=%d queued for install", cmd.TaskID)

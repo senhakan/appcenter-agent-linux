@@ -1250,3 +1250,51 @@ Not:
   - `linux agent runtime: ipc=/tmp/ac-live/ipc.sock remote_support_enabled=true`
   - `linux agent install queue capacity=32`
   - `periodic heartbeat ok: status=ok commands=0`
+
+## 2026-03-03 - Queue Status Ordering Live Validation (Controlled Mock)
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test setup:
+  - Lokal mock API (`127.0.0.1:18083`) tek install komutu dondurdu (`task_id=9921`).
+  - Agent queue worker status iyilestirmeli build ile foreground calistirildi.
+
+### Result
+
+- Queue ara statusu eklendi: OK
+- Status siralamasi duzeltildi: OK
+  - `Queued for install (5)` -> `Download started (10)` -> `Download completed (80)` -> `Install started (90)` -> `Install completed (100)`
+- Worker log sirasi beklendigi gibi: OK
+  - Once `queued for install`, sonra worker tarafinda `start install`.
+
+### Evidence
+
+- Mock event ozeti (`/tmp/ac-live/mock_queue_status_events.jsonl`):
+  - `STATUSES [('downloading', 5, 'Queued for install'), ('downloading', 10, 'Download started'), ('downloading', 80, 'Download completed'), ('downloading', 90, 'Install started'), ('success', 100, 'Install completed')]`
+- Agent runtime log (`/tmp/ac-live/run_queue_status.log`):
+  - `task=9921 queued for install`
+  - `task=9921 start install: app_id=12 version=1.0.0 priority=2 force_update=false`
+  - `task=9921 install success`
+
+## 2026-03-03 - Production Smoke (Queue Status Build)
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test server URL: `http://10.6.100.170:8000`
+- Test setup:
+  - `/tmp/ac-live/config.yaml` icinde `remote_support.enabled=true` korunarak yeni build foreground calistirildi (`55s`).
+
+### Result
+
+- Production heartbeat akisi: OK
+- Queue capacity runtime logu korunuyor: OK (`32`)
+- Bu kosuda yeni install komutu gelmedi (`commands=0`).
+
+### Evidence
+
+- Agent runtime log (`/tmp/ac-live/run_queue_capacity_prod.log`):
+  - `linux agent runtime: ipc=/tmp/ac-live/ipc.sock remote_support_enabled=true`
+  - `linux agent install queue capacity=32`
+  - `periodic heartbeat ok: status=ok commands=0`
