@@ -1139,3 +1139,59 @@ Not:
 - Test host:
   - `/tmp/ac_task_ok.txt` guncellendi (`2026-03-03T22:36:33Z`)
   - `/tmp/ac-live/downloads` bos
+
+## 2026-03-03 - Install Queue Worker Live Validation (Controlled Mock)
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test setup:
+  - Test host uzerinde lokal mock API (`127.0.0.1:18081`) ayaga kaldirildi.
+  - Ilk heartbeat cevabinda uzun sureli install komutu donduruldu (`task_id=9901`, payload `sleep 18`).
+  - Agent `heartbeat.interval_sec=5` ile foreground calistirildi.
+
+### Result
+
+- Install queue davranisi: OK
+  - `task=9901` heartbeat dongusunde senkron calistirilmadi, kuyruga alindi.
+- Uzun install sirasinda heartbeat devam etti: OK
+  - Heartbeat zamanlari: `0, 5, 10, 15, 20, 25, 30, 35` saniye.
+- Task tamamlanmasi: OK (`success`)
+
+### Evidence
+
+- Agent runtime log (`/tmp/ac-live/run_queue_worker.log`):
+  - `task=9901 start install: app_id=11 version=1.0.0 priority=1 force_update=false`
+  - `task=9901 queued for install`
+  - `periodic heartbeat ok: status=ok commands=0` (install devam ederken)
+  - `task=9901 install success`
+- Mock event ozeti (`/tmp/ac-live/mock_queue_worker_events.jsonl`):
+  - `HB_COUNT=8`
+  - `HB_TIMES_SEC=[0.0, 5.0, 10.0, 15.0, 20.0, 25.0, 30.0, 35.0]`
+  - `STATUS_COUNT=4`, `FINAL_STATUS=success`
+- Test host dosya kaniti:
+  - `/tmp/ac_queue_worker_ok.txt` olustu.
+
+## 2026-03-03 - Production Smoke (Queue Worker Build + REMOTE_SUPPORT_ENABLED=true)
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test server URL: `http://10.6.100.170:8000`
+- Test setup:
+  - `/tmp/ac-live/config.yaml` icinde `remote_support.enabled=true` dogrulandi.
+  - Yeni build foreground calistirildi (`95s`).
+
+### Result
+
+- Production register/heartbeat akisi: OK
+- `REMOTE_SUPPORT_ENABLED=true` ile ajan runtime baslangici: OK
+- Bu kosuda sunucudan yeni install komutu gelmedi (`commands=0`), dolayisiyla install regresyonu bu adimda tetiklenmedi.
+
+### Evidence
+
+- Agent runtime log (`/tmp/ac-live/run_queue_regression_prod.log`):
+  - `linux agent runtime: ipc=/tmp/ac-live/ipc.sock remote_support_enabled=true`
+  - `periodic heartbeat ok: status=ok commands=0` (tekrarlayan)
+- Config kaniti:
+  - `/tmp/ac-live/config.yaml` satiri: `enabled: true`

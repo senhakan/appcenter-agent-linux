@@ -181,6 +181,23 @@ func main() {
 	taskGuard := newTaskDeduper(30 * time.Minute)
 	taskGuard.Seed(st.ProcessedTasks)
 	persistTaskDeduper(cfg.Paths.StateFile, st, taskGuard, logger)
+	type installJob struct {
+		command api.Command
+	}
+	installQueue := make(chan installJob, 32)
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case job := <-installQueue:
+				cmd := job.command
+				terminalReported := runInstallCommand(ctx, client, cfg, st.UUID, st.SecretKey, cmd, logger)
+				taskGuard.Finish(cmd.TaskID, terminalReported)
+				persistTaskDeduper(cfg.Paths.StateFile, st, taskGuard, logger)
+			}
+		}
+	}()
 	var nextInventorySync time.Time
 	inventoryInterval := 30 * time.Minute
 
@@ -279,9 +296,20 @@ func main() {
 				"task=%d start install: app_id=%d version=%s priority=%d force_update=%t",
 				cmd.TaskID, cmd.AppID, strings.TrimSpace(cmd.AppVersion), cmd.Priority, cmd.ForceUpdate,
 			)
-			terminalReported := runInstallCommand(ctx, client, cfg, st.UUID, st.SecretKey, cmd, logger)
-			taskGuard.Finish(cmd.TaskID, terminalReported)
-			persistTaskDeduper(cfg.Paths.StateFile, st, taskGuard, logger)
+			select {
+			case installQueue <- installJob{command: cmd}:
+				logger.Printf("task=%d queued for install", cmd.TaskID)
+			default:
+				logger.Printf("task=%d install queue is full", cmd.TaskID)
+				terminalReported := reportTaskStatus(ctx, client, st.UUID, st.SecretKey, cmd.TaskID, api.TaskStatusRequest{
+					Status:   "failed",
+					Progress: 100,
+					Message:  "Install queue is full",
+					Error:    "install queue capacity reached",
+				}, logger)
+				taskGuard.Finish(cmd.TaskID, terminalReported)
+				persistTaskDeduper(cfg.Paths.StateFile, st, taskGuard, logger)
+			}
 		}
 	}
 
