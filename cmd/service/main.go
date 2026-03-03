@@ -78,6 +78,7 @@ func main() {
 	}
 
 	client := api.NewClient(cfg.Server.URL)
+	remoteSupportManager := remotesupport.NewManager(logger, cfg.RemoteSupport.Display, cfg.RemoteSupport.Port)
 	info := system.CollectHostInfo()
 	triggerCh := make(chan struct{}, 1)
 	var hasSecret atomic.Bool
@@ -147,6 +148,23 @@ func main() {
 					msg = "x11vnc is installed"
 				}
 				return ipc.Response{Status: status, Message: msg, Data: env}
+			case "remote_support_status":
+				return ipc.Response{Status: "ok", Message: "remote support status", Data: remoteSupportManager.Snapshot()}
+			case "remote_support_start":
+				if !cfg.RemoteSupport.Enabled {
+					return ipc.Response{Status: "error", Error: "remote support is disabled by config"}
+				}
+				st, err := remoteSupportManager.Start()
+				if err != nil {
+					return ipc.Response{Status: "error", Error: err.Error(), Data: st}
+				}
+				return ipc.Response{Status: "ok", Message: "remote support started", Data: st}
+			case "remote_support_stop":
+				st, err := remoteSupportManager.Stop()
+				if err != nil {
+					return ipc.Response{Status: "error", Error: err.Error(), Data: st}
+				}
+				return ipc.Response{Status: "ok", Message: "remote support stopped", Data: st}
 			default:
 				return ipc.Response{Status: "error", Error: "unsupported action"}
 			}

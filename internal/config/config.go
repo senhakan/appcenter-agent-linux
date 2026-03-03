@@ -43,8 +43,10 @@ type Config struct {
 		SocketPath string `yaml:"socket_path"`
 	} `yaml:"ipc"`
 	RemoteSupport struct {
-		Enabled            bool `yaml:"enabled"`
-		ApprovalTimeoutSec int  `yaml:"approval_timeout_sec"`
+		Enabled            bool   `yaml:"enabled"`
+		ApprovalTimeoutSec int    `yaml:"approval_timeout_sec"`
+		Display            string `yaml:"display"`
+		Port               int    `yaml:"port"`
 	} `yaml:"remote_support"`
 }
 
@@ -99,6 +101,12 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.RemoteSupport.ApprovalTimeoutSec <= 0 {
 		cfg.RemoteSupport.ApprovalTimeoutSec = 120
+	}
+	if cfg.RemoteSupport.Display == "" {
+		cfg.RemoteSupport.Display = ":0"
+	}
+	if cfg.RemoteSupport.Port <= 0 {
+		cfg.RemoteSupport.Port = 5900
 	}
 	return &cfg, nil
 }

@@ -1438,3 +1438,40 @@ Not:
   - `sudo apt-get install -y x11vnc`
 - Not:
   - Linux agent remote support gelistirmeleri icin test hostta gerekli ek arac kurulumlari onay beklemeden uygulanir.
+
+## 2026-03-03 - Remote Support Manager IPC (status/start/stop) Live Validation
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test setup:
+  - Agent production config ile foreground calistirildi (`remote_support.enabled=true`).
+  - IPC uzerinden sirasiyla aksiyonlar gonderildi:
+    - `remote_support_status`
+    - `remote_support_start`
+    - `remote_support_status`
+    - `remote_support_stop`
+    - `remote_support_status`
+
+### Result
+
+- `remote_support_status`: OK
+  - x11vnc kurulu/path/durum bilgisi dondu.
+- `remote_support_start`: OK
+  - x11vnc process baslatildi (`pid` dondu).
+- `remote_support_stop`: OK
+  - Process state temiz sekilde `running=false` oldu.
+- Test hostta aktif X11 display olmadigi icin x11vnc beklendigi gibi `exit status 1` ile sonlandi ve `last_error` alanina yansidi.
+
+### Evidence
+
+- IPC output:
+  - `STATUS_1 {"status":"ok","message":"remote support status","data":{"installed":true,"x11vnc_path":"/usr/bin/x11vnc","running":false,"display":":0","port":5900}}`
+  - `START {"status":"ok","message":"remote support started","data":{"installed":true,"x11vnc_path":"/usr/bin/x11vnc","running":true,"pid":20131,"display":":0","port":5900,...}}`
+  - `STATUS_2 ... "running":false ... "last_error":"exit status 1"`
+  - `STOP {"status":"ok","message":"remote support stopped",...}`
+  - `STATUS_3 ... "running":false ... "last_error":"exit status 1"`
+- Agent runtime log (`/tmp/ac-live/run_remote_support_manager.log`):
+  - `remote support x11vnc started: pid=20131 display=:0 port=5900`
+  - `remote support x11vnc exited with error: exit status 1`
+  - `periodic heartbeat ok: status=ok commands=0`
