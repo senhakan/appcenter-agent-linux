@@ -392,3 +392,38 @@ Not:
 
 Not:
 - Bu test, production servera dokunmadan kontrollu canli host ortaminda yapilmistir.
+
+## 2026-03-03 - Duplicate Task Persistence Across Restart (Controlled Mock)
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test setup:
+  - Test host uzerinde lokal mock API (`127.0.0.1:18082`) calistirildi.
+  - Her heartbeat'te ayni komut donduruldu (`task_id=888`, `action=install`).
+  - Agent ayni state dosyasi ile iki kez ayri process olarak calistirildi (restart simulasyonu).
+
+### Result
+
+- Birinci calistirma:
+  - task bir kez calisti, sonraki heartbeat'te skip edildi.
+- Ikinci calistirma (restart sonrasi):
+  - ilk heartbeat'te bile ayni task tekrar calistirilmadi
+  - log: `task=888 duplicate command skipped`
+- Kalici dedupe: OK
+
+### Evidence
+
+- Agent loglari:
+  - Run#1: `task=888 install success`, sonra `task=888 duplicate command skipped`
+  - Run#2: ilk heartbeat'ten itibaren `task=888 duplicate command skipped`
+- State dosyasi (`/tmp/ac-live/state_persistdup.json`):
+  - `processed_tasks` icinde `task_id=888` kaydi mevcut
+- Mock event log (`/tmp/ac-live/mock_persist_dup_events.jsonl`):
+  - `download` endpoint cagrisi: `1` kez
+  - `task_status` callback sayisi: `4` (tek install akisinin adimlari)
+- Test host:
+  - `/tmp/ac_persist_dup_task.txt` satir sayisi: `1`
+
+Not:
+- Bu test, production servera dokunmadan kontrollu canli host ortaminda yapilmistir.

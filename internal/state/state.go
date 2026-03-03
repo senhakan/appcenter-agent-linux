@@ -7,9 +7,15 @@ import (
 	"path/filepath"
 )
 
+type ProcessedTask struct {
+	TaskID         int   `json:"task_id"`
+	ExecutedAtUnix int64 `json:"executed_at_unix"`
+}
+
 type AgentState struct {
-	UUID      string `json:"uuid"`
-	SecretKey string `json:"secret_key"`
+	UUID           string          `json:"uuid"`
+	SecretKey      string          `json:"secret_key"`
+	ProcessedTasks []ProcessedTask `json:"processed_tasks,omitempty"`
 }
 
 func Load(path string) (*AgentState, error) {

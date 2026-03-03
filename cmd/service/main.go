@@ -10,6 +10,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -128,6 +129,8 @@ func main() {
 	ticker := time.NewTicker(time.Duration(interval) * time.Second)
 	defer ticker.Stop()
 	taskGuard := newTaskDeduper(30 * time.Minute)
+	taskGuard.Seed(st.ProcessedTasks)
+	persistTaskDeduper(cfg.Paths.StateFile, st, taskGuard, logger)
 
 	sendHeartbeat := func(reason string) {
 		info = system.CollectHostInfo()
@@ -189,6 +192,7 @@ func main() {
 				logger.Printf("task=%d duplicate command skipped", cmd.TaskID)
 				continue
 			}
+			persistTaskDeduper(cfg.Paths.StateFile, st, taskGuard, logger)
 			runInstallCommand(ctx, client, cfg, st.UUID, st.SecretKey, cmd, logger)
 		}
 	}
@@ -443,5 +447,50 @@ func (d *taskDeduper) pruneLocked(now time.Time) {
 		if now.Sub(t) >= d.ttl {
 			delete(d.execTime, id)
 		}
+	}
+}
+
+func (d *taskDeduper) Seed(items []state.ProcessedTask) {
+	now := time.Now()
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	for _, it := range items {
+		if it.TaskID <= 0 || it.ExecutedAtUnix <= 0 {
+			continue
+		}
+		t := time.Unix(it.ExecutedAtUnix, 0)
+		if now.Sub(t) >= d.ttl {
+			continue
+		}
+		d.execTime[it.TaskID] = t
+	}
+	d.pruneLocked(now)
+}
+
+func (d *taskDeduper) Snapshot() []state.ProcessedTask {
+	now := time.Now()
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.pruneLocked(now)
+	out := make([]state.ProcessedTask, 0, len(d.execTime))
+	for id, t := range d.execTime {
+		out = append(out, state.ProcessedTask{
+			TaskID:         id,
+			ExecutedAtUnix: t.Unix(),
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].ExecutedAtUnix > out[j].ExecutedAtUnix
+	})
+	return out
+}
+
+func persistTaskDeduper(path string, st *state.AgentState, guard *taskDeduper, logger *log.Logger) {
+	if st == nil || guard == nil {
+		return
+	}
+	st.ProcessedTasks = guard.Snapshot()
+	if err := state.Save(path, st); err != nil {
+		logger.Printf("state save warning: %v", err)
 	}
 }
