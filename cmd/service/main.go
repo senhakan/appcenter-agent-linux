@@ -267,6 +267,17 @@ func runInstallCommand(ctx context.Context, client *api.Client, cfg *config.Conf
 		logger.Printf("task=%d download ok: bytes=%d path=%s", cmd.TaskID, n, outPath)
 	}
 	defer cleanupDownloadedPackage(outPath, cmd.TaskID, logger)
+	if cfg.Download.MaxSizeBytes > 0 && n > cfg.Download.MaxSizeBytes {
+		errMsg := fmt.Sprintf("download size limit exceeded: got=%d max=%d", n, cfg.Download.MaxSizeBytes)
+		logger.Printf("task=%d %s", cmd.TaskID, errMsg)
+		return reportTaskStatus(ctx, client, agentUUID, secret, cmd.TaskID, api.TaskStatusRequest{
+			Status:              "failed",
+			Progress:            100,
+			Message:             "Download exceeds size limit",
+			Error:               errMsg,
+			DownloadDurationSec: downloadSec,
+		}, logger)
+	}
 	if cmd.FileSizeBytes > 0 && n != cmd.FileSizeBytes {
 		errMsg := fmt.Sprintf("download size mismatch: got=%d expected=%d", n, cmd.FileSizeBytes)
 		logger.Printf("task=%d %s", cmd.TaskID, errMsg)

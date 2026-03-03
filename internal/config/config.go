@@ -25,7 +25,8 @@ type Config struct {
 		IntervalSec int `yaml:"interval_sec"`
 	} `yaml:"heartbeat"`
 	Download struct {
-		TempDir string `yaml:"temp_dir"`
+		TempDir      string `yaml:"temp_dir"`
+		MaxSizeBytes int64  `yaml:"max_size_bytes"`
 	} `yaml:"download"`
 	Install struct {
 		TimeoutSec int `yaml:"timeout_sec"`

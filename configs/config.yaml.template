@@ -11,6 +11,7 @@ heartbeat:
 
 download:
   temp_dir: "/var/lib/appcenter-agent/downloads"
+  max_size_bytes: 0
 
 install:
   timeout_sec: 1800
