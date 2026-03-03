@@ -1888,3 +1888,91 @@ Not:
   - `linux agent runtime: ipc=/tmp/ac-live/ipc.sock remote_support_enabled=true`
   - `linux agent install queue: capacity=32 workers=1`
   - `periodic heartbeat ok: status=ok commands=0`
+
+## 2026-03-03 - Remote Support Batch Hardening Test #1 (Retry + Clear + Snapshot)
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test setup:
+  - Lokal mock API (`127.0.0.1:18092`) callback endpointlerinde transient hata uretildi:
+    - `approve`: ilk 2 deneme `500`, 3. deneme `200`
+    - `ready`: ilk deneme `500`, 2. deneme `200`
+  - IPC akisi:
+    - `remote_support_session_request(session_id=8899)`
+    - `remote_support_clear`
+    - `remote_support_session_request(session_id=8901)`
+    - `remote_support_approve(monitor_count=2)`
+
+### Result
+
+- `remote_support_clear` action: OK
+  - Session `idle`a sifirlandi.
+- Callback retry mekanizmasi: OK
+  - Approve callback 3. denemede recover.
+  - Ready callback 2. denemede recover.
+- Snapshot genisletmeleri: OK
+  - IPC status cevabinda `enabled_by_config` ve `in_progress` alanlari goruldu.
+
+### Evidence
+
+- IPC outputs:
+  - `CLEAR ... "session":{"state":"idle"}`
+  - `STATUS_AFTER_CLEAR ... "enabled_by_config":true, "in_progress":false`
+  - `APPROVE ... "session":{"state":"active","session_id":8901,...}`
+- Mock event ozeti (`/tmp/ac-live/mock_remote_support_batch1_events.jsonl`):
+  - `COUNTS={'approve':3,'ready':2,'ended':1}`
+  - `APPROVE_BODIES=[{'approved': True, 'monitor_count': 2}, ...]`
+- Agent runtime log (`/tmp/ac-live/run_remote_support_batch1.log`):
+  - `remote support callback recovered: op=approve attempt=3`
+  - `remote support callback recovered: op=ready attempt=2`
+
+## 2026-03-03 - Remote Support Batch Hardening Test #2 (Ready Fail Rollback)
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test setup:
+  - Lokal mock API (`127.0.0.1:18093`) `ready` endpointini kalici `500` dondurecek sekilde ayarlandi.
+  - IPC akisi:
+    - `remote_support_session_request(session_id=8911)`
+    - `remote_support_approve`
+
+### Result
+
+- Ready callback hard-fail rollback: OK
+  - Approve action hata ile dondu.
+  - Session `error` state'e gecirildi.
+  - Daemon stop + ended callback tetiklendi.
+
+### Evidence
+
+- IPC outputs:
+  - `APPROVE {"status":"error",...}`
+  - `STATUS ... "session":{"state":"error","session_id":8911,...}`
+- Mock event ozeti (`/tmp/ac-live/mock_remote_support_batch2_events.jsonl`):
+  - `COUNTS={'approve':1,'ready':3,'ended':1}`
+- Agent runtime log (`/tmp/ac-live/run_remote_support_batch2.log`):
+  - `remote support callback warning: op=ready attempt=1/2/3 ...`
+
+## 2026-03-03 - Production Smoke (Remote Support Batch Hardening Build)
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test server URL: `http://10.6.100.170:8000`
+- Test setup:
+  - `/tmp/ac-live/config.yaml` (`remote_support.enabled=true`) ile yeni build foreground calistirildi (`55s`).
+
+### Result
+
+- Production heartbeat akisi: OK
+- Install queue runtime logu korundu: OK
+- Bu kosuda yeni komut gelmedi (`commands=0`).
+
+### Evidence
+
+- Agent runtime log (`/tmp/ac-live/run_workers_prod.log`):
+  - `linux agent runtime: ipc=/tmp/ac-live/ipc.sock remote_support_enabled=true`
+  - `linux agent install queue: capacity=32 workers=1`
+  - `periodic heartbeat ok: status=ok commands=0`

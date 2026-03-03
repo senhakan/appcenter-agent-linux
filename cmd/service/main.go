@@ -90,6 +90,52 @@ func main() {
 			logger.Printf("remote support state save warning: %v", err)
 		}
 	}
+	callRemoteWithRetry := func(op string, fn func(callCtx context.Context) error) error {
+		const maxAttempts = 3
+		var lastErr error
+		for attempt := 1; attempt <= maxAttempts; attempt++ {
+			callCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			err := fn(callCtx)
+			cancel()
+			if err == nil {
+				if attempt > 1 {
+					logger.Printf("remote support callback recovered: op=%s attempt=%d", op, attempt)
+				}
+				return nil
+			}
+			lastErr = err
+			logger.Printf("remote support callback warning: op=%s attempt=%d err=%v", op, attempt, err)
+			if attempt == maxAttempts {
+				break
+			}
+			time.Sleep(time.Duration(attempt*300) * time.Millisecond)
+		}
+		return lastErr
+	}
+	sendRemoteApprove := func(sessionID int, approved bool, monitorCount int) error {
+		if sessionID <= 0 || strings.TrimSpace(st.SecretKey) == "" {
+			return nil
+		}
+		return callRemoteWithRetry("approve", func(callCtx context.Context) error {
+			return client.RemoteApprove(callCtx, st.UUID, st.SecretKey, sessionID, approved, monitorCount)
+		})
+	}
+	sendRemoteReady := func(sessionID int) error {
+		if sessionID <= 0 || strings.TrimSpace(st.SecretKey) == "" {
+			return nil
+		}
+		return callRemoteWithRetry("ready", func(callCtx context.Context) error {
+			return client.RemoteReady(callCtx, st.UUID, st.SecretKey, sessionID)
+		})
+	}
+	sendRemoteEnded := func(sessionID int, reason string) error {
+		if sessionID <= 0 || strings.TrimSpace(st.SecretKey) == "" {
+			return nil
+		}
+		return callRemoteWithRetry("ended", func(callCtx context.Context) error {
+			return client.RemoteEnded(callCtx, st.UUID, st.SecretKey, sessionID, "agent", reason)
+		})
+	}
 	info := system.CollectHostInfo()
 	triggerCh := make(chan struct{}, 1)
 	var hasSecret atomic.Bool
@@ -129,8 +175,10 @@ func main() {
 		handler := func(req ipc.Request) ipc.Response {
 			remoteSupportSnapshot := func() any {
 				return map[string]any{
-					"session": remoteSupportSession.Snapshot(),
-					"daemon":  remoteSupportManager.Snapshot(),
+					"session":           remoteSupportSession.Snapshot(),
+					"daemon":            remoteSupportManager.Snapshot(),
+					"enabled_by_config": cfg.RemoteSupport.Enabled,
+					"in_progress":       remoteSupportSession.InProgress(),
 				}
 			}
 			switch strings.ToLower(strings.TrimSpace(req.Action)) {
@@ -182,6 +230,9 @@ func main() {
 					} else {
 						remoteSupportSession.End("daemon stopped")
 					}
+					if err := sendRemoteEnded(session.SessionID, "daemon stopped"); err != nil {
+						logger.Printf("remote support ended report warning: %v", err)
+					}
 					persistRemoteSupportSession()
 				}
 				return ipc.Response{Status: "ok", Message: "remote support status", Data: remoteSupportSnapshot()}
@@ -204,15 +255,10 @@ func main() {
 				if monitorCount <= 0 {
 					monitorCount = 1
 				}
-				if sst.SessionID > 0 && strings.TrimSpace(st.SecretKey) != "" {
-					callCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-					err = client.RemoteApprove(callCtx, st.UUID, st.SecretKey, sst.SessionID, true, monitorCount)
-					cancel()
-					if err != nil {
-						remoteSupportSession.Error(err)
-						persistRemoteSupportSession()
-						return ipc.Response{Status: "error", Error: err.Error(), Data: remoteSupportSnapshot()}
-					}
+				if err = sendRemoteApprove(sst.SessionID, true, monitorCount); err != nil {
+					remoteSupportSession.Error(err)
+					persistRemoteSupportSession()
+					return ipc.Response{Status: "error", Error: err.Error(), Data: remoteSupportSnapshot()}
 				}
 				_, err = remoteSupportManager.Start()
 				if err != nil {
@@ -220,15 +266,12 @@ func main() {
 					persistRemoteSupportSession()
 					return ipc.Response{Status: "error", Error: err.Error(), Data: remoteSupportSnapshot()}
 				}
-				if sst.SessionID > 0 && strings.TrimSpace(st.SecretKey) != "" {
-					callCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-					err = client.RemoteReady(callCtx, st.UUID, st.SecretKey, sst.SessionID)
-					cancel()
-					if err != nil {
-						remoteSupportSession.Error(err)
-						persistRemoteSupportSession()
-						return ipc.Response{Status: "error", Error: err.Error(), Data: remoteSupportSnapshot()}
-					}
+				if err = sendRemoteReady(sst.SessionID); err != nil {
+					_, _ = remoteSupportManager.Stop()
+					_ = sendRemoteEnded(sst.SessionID, "ready callback failed")
+					remoteSupportSession.Error(err)
+					persistRemoteSupportSession()
+					return ipc.Response{Status: "error", Error: err.Error(), Data: remoteSupportSnapshot()}
 				}
 				remoteSupportSession.Activate()
 				persistRemoteSupportSession()
@@ -242,16 +285,15 @@ func main() {
 				if err != nil {
 					return ipc.Response{Status: "error", Error: err.Error(), Data: remoteSupportSnapshot()}
 				}
-				if sst.SessionID > 0 && strings.TrimSpace(st.SecretKey) != "" {
-					callCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-					err = client.RemoteApprove(callCtx, st.UUID, st.SecretKey, sst.SessionID, false, 0)
-					cancel()
-					if err != nil {
-						return ipc.Response{Status: "error", Error: err.Error(), Data: remoteSupportSnapshot()}
-					}
+				if err = sendRemoteApprove(sst.SessionID, false, 0); err != nil {
+					return ipc.Response{Status: "error", Error: err.Error(), Data: remoteSupportSnapshot()}
 				}
 				persistRemoteSupportSession()
 				return ipc.Response{Status: "ok", Message: "remote support rejected", Data: remoteSupportSnapshot()}
+			case "remote_support_clear":
+				remoteSupportSession.Clear()
+				persistRemoteSupportSession()
+				return ipc.Response{Status: "ok", Message: "remote support state cleared", Data: remoteSupportSnapshot()}
 			case "remote_support_end":
 				sst := remoteSupportSession.Snapshot()
 				_, err := remoteSupportManager.Stop()
@@ -259,13 +301,8 @@ func main() {
 					return ipc.Response{Status: "error", Error: err.Error(), Data: remoteSupportSnapshot()}
 				}
 				remoteSupportSession.End("ended")
-				if sst.SessionID > 0 && strings.TrimSpace(st.SecretKey) != "" {
-					callCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-					err = client.RemoteEnded(callCtx, st.UUID, st.SecretKey, sst.SessionID, "agent", "ended from ipc")
-					cancel()
-					if err != nil {
-						return ipc.Response{Status: "error", Error: err.Error(), Data: remoteSupportSnapshot()}
-					}
+				if err = sendRemoteEnded(sst.SessionID, "ended from ipc"); err != nil {
+					return ipc.Response{Status: "error", Error: err.Error(), Data: remoteSupportSnapshot()}
 				}
 				persistRemoteSupportSession()
 				return ipc.Response{Status: "ok", Message: "remote support ended", Data: remoteSupportSnapshot()}
@@ -403,6 +440,9 @@ func main() {
 			} else {
 				remoteSupportSession.Error(fmt.Errorf("remote support daemon stopped"))
 			}
+			if err := sendRemoteEnded(curSessionBeforeHB.SessionID, "daemon stopped"); err != nil {
+				logger.Printf("remote support ended report warning: %v", err)
+			}
 			persistRemoteSupportSession()
 			logger.Printf("remote support daemon stopped while session active: session_id=%d", curSessionBeforeHB.SessionID)
 		}
@@ -445,13 +485,8 @@ func main() {
 					logger.Printf("remote support stop warning: %v", err)
 				}
 				remoteSupportSession.End("disabled by config")
-				if cur.SessionID > 0 {
-					callCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-					err := client.RemoteEnded(callCtx, st.UUID, st.SecretKey, cur.SessionID, "agent", "disabled by config")
-					cancel()
-					if err != nil {
-						logger.Printf("remote support ended report warning: %v", err)
-					}
+				if err := sendRemoteEnded(cur.SessionID, "disabled by config"); err != nil {
+					logger.Printf("remote support ended report warning: %v", err)
 				}
 				persistRemoteSupportSession()
 				logger.Printf("remote support session terminated because feature disabled")
@@ -463,13 +498,8 @@ func main() {
 				deadline := cur.RequestedAtUnix + int64(cfg.RemoteSupport.ApprovalTimeoutSec)
 				if time.Now().Unix() > deadline {
 					remoteSupportSession.Reject("approval timeout")
-					if cur.SessionID > 0 {
-						callCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-						err := client.RemoteApprove(callCtx, st.UUID, st.SecretKey, cur.SessionID, false, 0)
-						cancel()
-						if err != nil {
-							logger.Printf("remote support timeout reject report warning: %v", err)
-						}
+					if err := sendRemoteApprove(cur.SessionID, false, 0); err != nil {
+						logger.Printf("remote support timeout reject report warning: %v", err)
 					}
 					persistRemoteSupportSession()
 					logger.Printf("remote support session timed out waiting approval: session_id=%d", cur.SessionID)
@@ -501,10 +531,7 @@ func main() {
 				}
 				remoteSupportSession.End("ended by server")
 				persistRemoteSupportSession()
-				callCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-				err := client.RemoteEnded(callCtx, st.UUID, st.SecretKey, hb.RemoteSupportEnd.SessionID, "agent", "ended by server signal")
-				cancel()
-				if err != nil {
+				if err := sendRemoteEnded(hb.RemoteSupportEnd.SessionID, "ended by server signal"); err != nil {
 					logger.Printf("remote support ended report warning: %v", err)
 				}
 				logger.Printf("remote support end signal handled: session_id=%d", hb.RemoteSupportEnd.SessionID)

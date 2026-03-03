@@ -57,6 +57,22 @@ func (m *SessionManager) Snapshot() SessionStatus {
 	return m.status
 }
 
+func (m *SessionManager) InProgress() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.status.State == StatePending || m.status.State == StateApproved || m.status.State == StateActive
+}
+
+func (m *SessionManager) Clear() SessionStatus {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.status = SessionStatus{
+		State:   StateIdle,
+		Message: DefaultMessage,
+	}
+	return m.status
+}
+
 func (m *SessionManager) Begin(sessionID int, adminName, reason string) (SessionStatus, error) {
 	if sessionID <= 0 {
 		return m.Snapshot(), fmt.Errorf("session_id must be positive")
