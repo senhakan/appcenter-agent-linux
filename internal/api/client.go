@@ -217,13 +217,17 @@ func (c *Client) GetStore(ctx context.Context, agentUUID, secret string) (*Store
 	return &out, nil
 }
 
-func (c *Client) RemoteApprove(ctx context.Context, agentUUID, secret string, sessionID int, approved bool) error {
+func (c *Client) RemoteApprove(ctx context.Context, agentUUID, secret string, sessionID int, approved bool, monitorCount int) error {
 	headers := map[string]string{
 		"X-Agent-UUID":   agentUUID,
 		"X-Agent-Secret": secret,
 	}
 	path := fmt.Sprintf("/api/v1/agent/remote-support/%d/approve", sessionID)
-	return c.postJSON(ctx, path, RemoteApproveRequest{Approved: approved}, headers, nil)
+	req := RemoteApproveRequest{Approved: approved}
+	if monitorCount > 0 {
+		req.MonitorCount = monitorCount
+	}
+	return c.postJSON(ctx, path, req, headers, nil)
 }
 
 func (c *Client) RemoteReady(ctx context.Context, agentUUID, secret string, sessionID int) error {

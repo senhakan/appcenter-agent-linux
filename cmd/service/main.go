@@ -200,9 +200,13 @@ func main() {
 				if err != nil {
 					return ipc.Response{Status: "error", Error: err.Error(), Data: remoteSupportSnapshot()}
 				}
+				monitorCount := req.MonitorCount
+				if monitorCount <= 0 {
+					monitorCount = 1
+				}
 				if sst.SessionID > 0 && strings.TrimSpace(st.SecretKey) != "" {
 					callCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-					err = client.RemoteApprove(callCtx, st.UUID, st.SecretKey, sst.SessionID, true)
+					err = client.RemoteApprove(callCtx, st.UUID, st.SecretKey, sst.SessionID, true, monitorCount)
 					cancel()
 					if err != nil {
 						remoteSupportSession.Error(err)
@@ -240,7 +244,7 @@ func main() {
 				}
 				if sst.SessionID > 0 && strings.TrimSpace(st.SecretKey) != "" {
 					callCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-					err = client.RemoteApprove(callCtx, st.UUID, st.SecretKey, sst.SessionID, false)
+					err = client.RemoteApprove(callCtx, st.UUID, st.SecretKey, sst.SessionID, false, 0)
 					cancel()
 					if err != nil {
 						return ipc.Response{Status: "error", Error: err.Error(), Data: remoteSupportSnapshot()}

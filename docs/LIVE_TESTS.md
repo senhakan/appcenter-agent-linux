@@ -1745,3 +1745,48 @@ Not:
   - `linux agent runtime: ipc=/tmp/ac-live/ipc.sock remote_support_enabled=true`
   - `linux agent install queue: capacity=32 workers=1`
   - `periodic heartbeat ok: status=ok commands=0`
+
+## 2026-03-03 - Remote Support Approve MonitorCount Payload Live Validation
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test setup:
+  - Lokal mock API (`127.0.0.1:18089`) approve endpoint body'sini kaydetti.
+  - IPC akisi:
+    - `remote_support_session_request(session_id=8601)`
+    - `remote_support_approve(monitor_count=2)`
+
+### Result
+
+- IPC -> Agent API `monitor_count` tasima: OK
+- Approve callback body dogrulandi: `{"approved": true, "monitor_count": 2}`
+
+### Evidence
+
+- IPC output:
+  - `APPROVE ... "session":{"state":"active","session_id":8601,...}`
+- Mock event ozeti (`/tmp/ac-live/mock_remote_support_monitor_events.jsonl`):
+  - `APPROVE_PAYLOADS=[{'approved': True, 'monitor_count': 2}]`
+
+## 2026-03-03 - Production Smoke (MonitorCount Support Build)
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test server URL: `http://10.6.100.170:8000`
+- Test setup:
+  - `/tmp/ac-live/config.yaml` (`remote_support.enabled=true`) ile yeni build foreground calistirildi (`55s`).
+
+### Result
+
+- Production heartbeat akisi: OK
+- Install queue runtime logu korundu: OK
+- Bu kosuda yeni komut gelmedi (`commands=0`).
+
+### Evidence
+
+- Agent runtime log (`/tmp/ac-live/run_workers_prod.log`):
+  - `linux agent runtime: ipc=/tmp/ac-live/ipc.sock remote_support_enabled=true`
+  - `linux agent install queue: capacity=32 workers=1`
+  - `periodic heartbeat ok: status=ok commands=0`

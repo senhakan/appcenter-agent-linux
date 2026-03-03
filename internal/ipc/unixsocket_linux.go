@@ -16,11 +16,12 @@ import (
 )
 
 type Request struct {
-	Action    string `json:"action"`
-	AppID     int    `json:"app_id,omitempty"`
-	SessionID int    `json:"session_id,omitempty"`
-	AdminName string `json:"admin_name,omitempty"`
-	Reason    string `json:"reason,omitempty"`
+	Action       string `json:"action"`
+	AppID        int    `json:"app_id,omitempty"`
+	SessionID    int    `json:"session_id,omitempty"`
+	AdminName    string `json:"admin_name,omitempty"`
+	Reason       string `json:"reason,omitempty"`
+	MonitorCount int    `json:"monitor_count,omitempty"`
 }
 
 type Response struct {
