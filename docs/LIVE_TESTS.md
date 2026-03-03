@@ -165,3 +165,33 @@ Not:
 
 Not:
 - Bu test, production servera dokunmadan kontrollu canli host ortaminda yapilmistir.
+
+## 2026-03-03 - Task Progress Retest (Install Started 90%)
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test server URL: `http://10.6.100.170:8000`
+- Agent build:
+  - Download tamamlandiktan sonra install baslangici icin ek ara status gonderen surum
+
+### Result
+
+- Canli install task akis smoke: OK (`task_id=31`)
+- Ara status adimi eklendi: OK
+  - `downloading(10)` -> `downloading(80)` -> `downloading(90, Install started)` -> `success(100)`
+- Download cleanup davranisi korundu: OK
+
+### Evidence
+
+- Agent runtime log:
+  - `periodic heartbeat ok: status=ok commands=1`
+  - `task=31 download ok: bytes=134 path=/tmp/ac-live/downloads/linux_install_ok.exe`
+  - `task=31 install success`
+- Server journal (`appcenter` unit):
+  - `POST /api/v1/agent/task/31/status` ayni task icin art arda 4 kez `200 OK` (ara progress + final success)
+- Server DB (`task_history`):
+  - `id=31`, `status=success`, `message=Install completed`, `exit_code=0`
+- Test host:
+  - `/tmp/ac_task_ok.txt` guncellendi (`2026-03-03T21:23:27Z`)
+  - `/tmp/ac-live/downloads` bos (paket temizligi devam ediyor)

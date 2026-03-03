@@ -253,6 +253,12 @@ func runInstallCommand(ctx context.Context, client *api.Client, cfg *config.Conf
 		Message:             "Download completed",
 		DownloadDurationSec: downloadSec,
 	})
+	_ = client.ReportTaskStatus(ctx, agentUUID, secret, cmd.TaskID, api.TaskStatusRequest{
+		Status:              "downloading",
+		Progress:            90,
+		Message:             "Install started",
+		DownloadDurationSec: downloadSec,
+	})
 
 	installStart := time.Now()
 	installCtx, cancel := context.WithTimeout(ctx, time.Duration(cfg.Install.TimeoutSec)*time.Second)
