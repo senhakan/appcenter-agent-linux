@@ -1839,3 +1839,52 @@ Not:
   - `linux agent runtime: ipc=/tmp/ac-live/ipc.sock remote_support_enabled=true`
   - `linux agent install queue: capacity=32 workers=1`
   - `periodic heartbeat ok: status=ok commands=0`
+
+## 2026-03-03 - Heartbeat RemoteSupport Daemon Reconcile (Active -> Error)
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test setup:
+  - Lokal mock API (`127.0.0.1:18091`) heartbeat payload'indaki `remote_support.state` alanini kaydetti.
+  - IPC ile `remote_support_session_request(session_id=8801)` + `remote_support_approve` tetiklendi.
+  - x11vnc test hostta display olmadigi icin hizla kapandi.
+  - Ek olarak `remote_support_status` cagrisi yapilmadan heartbeat dongusunun state uzlastirmasi izlendi.
+
+### Result
+
+- Heartbeat-side daemon reconcile: OK
+  - Daemon kapanisi sonrasi session state otomatik `error`a cekildi.
+- `remote_support_status` action'ina bagimli olmadan state guncellemesi dogrulandi.
+
+### Evidence
+
+- Mock heartbeat state ozeti (`/tmp/ac-live/mock_remote_support_hb_reconcile_events.jsonl`):
+  - `HB_STATES=['idle','idle','error','error','error']`
+  - `HAS_ERROR_STATE=True`
+- Agent runtime log (`/tmp/ac-live/run_remote_support_hb_reconcile.log`):
+  - `remote support x11vnc exited with error: exit status 1`
+  - `remote support daemon stopped while session active: session_id=8801`
+  - `periodic heartbeat ok: status=ok commands=0`
+
+## 2026-03-03 - Production Smoke (Heartbeat Daemon Reconcile Build)
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test server URL: `http://10.6.100.170:8000`
+- Test setup:
+  - `/tmp/ac-live/config.yaml` (`remote_support.enabled=true`) ile yeni build foreground calistirildi (`55s`).
+
+### Result
+
+- Production heartbeat akisi: OK
+- Install queue runtime logu korundu: OK
+- Bu kosuda yeni komut gelmedi (`commands=0`).
+
+### Evidence
+
+- Agent runtime log (`/tmp/ac-live/run_workers_prod.log`):
+  - `linux agent runtime: ipc=/tmp/ac-live/ipc.sock remote_support_enabled=true`
+  - `linux agent install queue: capacity=32 workers=1`
+  - `periodic heartbeat ok: status=ok commands=0`

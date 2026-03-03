@@ -395,6 +395,17 @@ func main() {
 		if activeInstalls.Load() > 0 || len(installQueue) > 0 {
 			currentStatus = "Busy"
 		}
+		curSessionBeforeHB := remoteSupportSession.Snapshot()
+		curDaemonBeforeHB := remoteSupportManager.Snapshot()
+		if curSessionBeforeHB.State == remotesupport.StateActive && !curDaemonBeforeHB.Running {
+			if strings.TrimSpace(curDaemonBeforeHB.LastError) != "" {
+				remoteSupportSession.Error(fmt.Errorf(curDaemonBeforeHB.LastError))
+			} else {
+				remoteSupportSession.Error(fmt.Errorf("remote support daemon stopped"))
+			}
+			persistRemoteSupportSession()
+			logger.Printf("remote support daemon stopped while session active: session_id=%d", curSessionBeforeHB.SessionID)
+		}
 		rsSession := remoteSupportSession.Snapshot()
 		rsDaemon := remoteSupportManager.Snapshot()
 		hb, hbErr := client.Heartbeat(ctx, st.UUID, st.SecretKey, api.HeartbeatRequest{
