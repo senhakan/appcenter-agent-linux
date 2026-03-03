@@ -294,3 +294,37 @@ Not:
   - `id=24`, `status=failed`, `retry_count=1`, `error_message=Install timed out`
 - Test host:
   - `/tmp/ac_task_timeout_should_not_exist.txt` yok (beklenen)
+
+## 2026-03-03 - Timeout/Fail Artifact Cleanup Retest
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test server URL: `http://10.6.100.170:8000`
+- Agent build:
+  - indirilen installer paketini sadece success'te degil timeout/failed durumlarinda da temizleyen surum
+- Test setup:
+  - Timeout payload (`app_id=12`) yeniden pending'e alinip calistirildi
+  - Agent timeout config: `install.timeout_sec=2`
+
+### Result
+
+- Timeout task sonucu: OK (`task_id=35`, `status=timeout`)
+- Agent app hata akisi: OK (`agent_applications.id=24 -> status=failed, retry_count=1`)
+- Asil dogrulama:
+  - Timeout sonrasi indirilen payload dosyasi temizlendi: OK
+  - Beklenmeyen cikti dosyasi olusmadi: OK
+
+### Evidence
+
+- Agent runtime log:
+  - `task=35 download ok: bytes=156 path=/tmp/ac-live/downloads/linux_timeout_payload.exe`
+  - `task=35 install timeout: Install timed out`
+- Server DB (`task_history`):
+  - `id=35`, `status=timeout`, `message=Install timed out`, `install_duration_sec=10`
+- Server journal (`appcenter` unit):
+  - `POST /api/v1/agent/task/35/status` callbacklari `200 OK`
+  - `GET /api/v1/agent/download/12` `200 OK`
+- Test host:
+  - `CLEANED_TIMEOUT_PAYLOAD` (download klasorunde timeout payload yok)
+  - `NO_TIMEOUT_OUTPUT_FILE` (`/tmp/ac_task_timeout_should_not_exist.txt` olusmadi)

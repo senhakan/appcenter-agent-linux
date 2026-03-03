@@ -236,6 +236,7 @@ func runInstallCommand(ctx context.Context, client *api.Client, cfg *config.Conf
 	if n > 0 {
 		logger.Printf("task=%d download ok: bytes=%d path=%s", cmd.TaskID, n, outPath)
 	}
+	defer cleanupDownloadedPackage(outPath, cmd.TaskID, logger)
 	if err := utils.VerifySHA256(outPath, cmd.FileHash); err != nil {
 		logger.Printf("task=%d hash verify failed: %v", cmd.TaskID, err)
 		reportTaskStatus(ctx, client, agentUUID, secret, cmd.TaskID, api.TaskStatusRequest{
@@ -312,9 +313,6 @@ func runInstallCommand(ctx context.Context, client *api.Client, cfg *config.Conf
 		DownloadDurationSec: downloadSec,
 		InstallDurationSec:  installSec,
 	}, logger)
-	if err := os.Remove(outPath); err != nil {
-		logger.Printf("task=%d cleanup warning: %v", cmd.TaskID, err)
-	}
 	logger.Printf("task=%d install success", cmd.TaskID)
 }
 
@@ -361,4 +359,13 @@ func trimOutput(s string, max int) string {
 		return s
 	}
 	return s[:max] + "..."
+}
+
+func cleanupDownloadedPackage(path string, taskID int, logger *log.Logger) {
+	if strings.TrimSpace(path) == "" {
+		return
+	}
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		logger.Printf("task=%d cleanup warning: %v", taskID, err)
+	}
 }
