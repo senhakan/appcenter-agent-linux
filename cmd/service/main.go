@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -267,6 +268,22 @@ func runInstallCommand(ctx context.Context, client *api.Client, cfg *config.Conf
 	installSec := int(time.Since(installStart).Seconds())
 
 	if installErr != nil {
+		if errors.Is(installErr, context.DeadlineExceeded) || installCtx.Err() == context.DeadlineExceeded {
+			msg := "Install timed out"
+			if strings.TrimSpace(stdout) != "" {
+				msg = msg + " | " + trimOutput(stdout, 1200)
+			}
+			logger.Printf("task=%d install timeout: %s", cmd.TaskID, msg)
+			reportTaskStatus(ctx, client, agentUUID, secret, cmd.TaskID, api.TaskStatusRequest{
+				Status:              "timeout",
+				Progress:            100,
+				Message:             "Install timed out",
+				Error:               msg,
+				DownloadDurationSec: downloadSec,
+				InstallDurationSec:  installSec,
+			}, logger)
+			return
+		}
 		msg := installErr.Error()
 		if strings.TrimSpace(stdout) != "" {
 			msg = msg + " | " + trimOutput(stdout, 1200)

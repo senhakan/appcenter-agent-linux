@@ -258,3 +258,39 @@ Not:
 - Test host:
   - `/tmp/ac_task_ok.txt` guncellendi (`2026-03-03T21:28:48Z`)
   - `/tmp/ac-live/downloads` bos
+
+## 2026-03-03 - Install Timeout Classification Live Test
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test server URL: `http://10.6.100.170:8000`
+- Agent build:
+  - install timeout durumunu `failed` yerine `timeout` olarak raporlayan surum
+- Test setup:
+  - Sunucuya timeout test payload app eklendi: `app_id=12` (`Linux Timeout Test App`)
+  - Payload scripti: `sleep 10` (zaman asimi tetiklemek icin)
+  - Agent bu testte ozel config ile calistirildi: `install.timeout_sec=2`
+
+### Result
+
+- Canli install timeout smoke: OK (`task_id=34`)
+- Timeout sınıflandirma: OK (`task_history.status=timeout`)
+- Agent app durumu: OK (`agent_applications.status=failed`, `retry_count=1`)
+- Timeout payload beklenen cikti dosyasini olusturmadi: OK
+
+### Evidence
+
+- Agent runtime log:
+  - `periodic heartbeat ok: status=ok commands=1`
+  - `task=34 download ok: bytes=156 path=/tmp/ac-live/downloads/linux_timeout_payload.exe`
+  - `task=34 install timeout: Install timed out`
+- Server journal (`appcenter` unit):
+  - `POST /api/v1/agent/task/34/status` timeout akisi boyunca 4 kez `200 OK`
+  - `GET /api/v1/agent/download/12` `200 OK`
+- Server DB (`task_history`):
+  - `id=34`, `status=timeout`, `message=Install timed out`, `install_duration_sec=10`
+- Server DB (`agent_applications`):
+  - `id=24`, `status=failed`, `retry_count=1`, `error_message=Install timed out`
+- Test host:
+  - `/tmp/ac_task_timeout_should_not_exist.txt` yok (beklenen)
