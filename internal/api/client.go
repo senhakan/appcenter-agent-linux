@@ -53,28 +53,32 @@ type RegisterResponse struct {
 }
 
 type HeartbeatRequest struct {
-	Hostname      string `json:"hostname"`
-	IPAddress     string `json:"ip_address,omitempty"`
-	OSUser        string `json:"os_user,omitempty"`
-	AgentVersion  string `json:"agent_version,omitempty"`
-	DiskFreeGB    int    `json:"disk_free_gb,omitempty"`
-	CurrentStatus string `json:"current_status,omitempty"`
-	AppsChanged   bool   `json:"apps_changed"`
-	InstalledApps []any  `json:"installed_apps"`
-	InventoryHash string `json:"inventory_hash,omitempty"`
-	Platform      string `json:"platform,omitempty"`
+	Hostname      string                  `json:"hostname"`
+	IPAddress     string                  `json:"ip_address,omitempty"`
+	OSUser        string                  `json:"os_user,omitempty"`
+	AgentVersion  string                  `json:"agent_version,omitempty"`
+	DiskFreeGB    int                     `json:"disk_free_gb,omitempty"`
+	CurrentStatus string                  `json:"current_status,omitempty"`
+	AppsChanged   bool                    `json:"apps_changed"`
+	InstalledApps []any                   `json:"installed_apps"`
+	InventoryHash string                  `json:"inventory_hash,omitempty"`
+	Platform      string                  `json:"platform,omitempty"`
+	RemoteSupport *RemoteSupportHeartbeat `json:"remote_support,omitempty"`
 }
 
 type HeartbeatConfig struct {
 	HeartbeatIntervalSec     int  `json:"heartbeat_interval_sec"`
 	InventorySyncRequired    bool `json:"inventory_sync_required"`
 	InventoryScanIntervalMin int  `json:"inventory_scan_interval_min"`
+	RemoteSupportEnabled     bool `json:"remote_support_enabled"`
 }
 
 type HeartbeatResponse struct {
-	Status   string          `json:"status"`
-	Config   HeartbeatConfig `json:"config"`
-	Commands []Command       `json:"commands"`
+	Status               string                `json:"status"`
+	Config               HeartbeatConfig       `json:"config"`
+	Commands             []Command             `json:"commands"`
+	RemoteSupportRequest *RemoteSupportRequest `json:"remote_support_request,omitempty"`
+	RemoteSupportEnd     *RemoteSupportEnd     `json:"remote_support_end,omitempty"`
 }
 
 type SignalResponse struct {
@@ -141,6 +145,37 @@ type StoreResponse struct {
 	Apps []StoreApp `json:"apps"`
 }
 
+type RemoteSupportHeartbeat struct {
+	State         string `json:"state,omitempty"`
+	SessionID     int    `json:"session_id,omitempty"`
+	HelperRunning bool   `json:"helper_running"`
+	HelperPID     int    `json:"helper_pid,omitempty"`
+}
+
+type RemoteSupportRequest struct {
+	SessionID int    `json:"session_id"`
+	AdminName string `json:"admin_name"`
+	Reason    string `json:"reason,omitempty"`
+}
+
+type RemoteSupportEnd struct {
+	SessionID int `json:"session_id"`
+}
+
+type RemoteApproveRequest struct {
+	Approved     bool `json:"approved"`
+	MonitorCount int  `json:"monitor_count,omitempty"`
+}
+
+type RemoteReadyRequest struct {
+	VNCReady bool `json:"vnc_ready"`
+}
+
+type RemoteEndedRequest struct {
+	EndedBy string `json:"ended_by"`
+	Reason  string `json:"reason,omitempty"`
+}
+
 func (c *Client) Register(ctx context.Context, req RegisterRequest) (*RegisterResponse, error) {
 	var out RegisterResponse
 	if err := c.postJSON(ctx, "/api/v1/agent/register", req, nil, &out); err != nil {
@@ -180,6 +215,33 @@ func (c *Client) GetStore(ctx context.Context, agentUUID, secret string) (*Store
 		return nil, err
 	}
 	return &out, nil
+}
+
+func (c *Client) RemoteApprove(ctx context.Context, agentUUID, secret string, sessionID int, approved bool) error {
+	headers := map[string]string{
+		"X-Agent-UUID":   agentUUID,
+		"X-Agent-Secret": secret,
+	}
+	path := fmt.Sprintf("/api/v1/agent/remote-support/%d/approve", sessionID)
+	return c.postJSON(ctx, path, RemoteApproveRequest{Approved: approved}, headers, nil)
+}
+
+func (c *Client) RemoteReady(ctx context.Context, agentUUID, secret string, sessionID int) error {
+	headers := map[string]string{
+		"X-Agent-UUID":   agentUUID,
+		"X-Agent-Secret": secret,
+	}
+	path := fmt.Sprintf("/api/v1/agent/remote-support/%d/ready", sessionID)
+	return c.postJSON(ctx, path, RemoteReadyRequest{VNCReady: true}, headers, nil)
+}
+
+func (c *Client) RemoteEnded(ctx context.Context, agentUUID, secret string, sessionID int, endedBy, reason string) error {
+	headers := map[string]string{
+		"X-Agent-UUID":   agentUUID,
+		"X-Agent-Secret": secret,
+	}
+	path := fmt.Sprintf("/api/v1/agent/remote-support/%d/ended", sessionID)
+	return c.postJSON(ctx, path, RemoteEndedRequest{EndedBy: endedBy, Reason: reason}, headers, nil)
 }
 
 func (c *Client) Heartbeat(ctx context.Context, uuid, secret string, req HeartbeatRequest) (*HeartbeatResponse, error) {

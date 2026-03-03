@@ -1514,3 +1514,56 @@ Not:
   - `remote support x11vnc started: pid=20336 display=:0 port=5900`
   - `remote support x11vnc exited with error: exit status 1`
   - `periodic heartbeat ok: status=ok commands=0`
+
+## 2026-03-03 - Remote Support Agent API Integration Live Validation (Controlled Mock)
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test setup:
+  - Lokal mock API (`127.0.0.1:18086`) ile agent remote-support endpointleri taklit edildi.
+  - Agent IPC uzerinden su akislar calistirildi:
+    - `remote_support_session_request(session_id=8101)` + `remote_support_reject`
+    - `remote_support_session_request(session_id=8102)` + `remote_support_approve` + `remote_support_end`
+  - Mock, endpoint hit'lerini ve heartbeat `remote_support` payload'ini kaydetti.
+
+### Result
+
+- Agent -> Server remote-support callback entegrasyonu: OK
+  - Reject akisi: `POST /agent/remote-support/8101/approve` body `{"approved": false}`
+  - Approve akisi: `POST /agent/remote-support/8102/approve` body `{"approved": true}`
+  - Ready callback: `POST /agent/remote-support/8102/ready` body `{"vnc_ready": true}`
+  - End callback: `POST /agent/remote-support/8102/ended` body `{"ended_by":"agent","reason":"ended from ipc"}`
+- Heartbeat `remote_support` payload gonderimi: OK
+
+### Evidence
+
+- Mock event ozeti (`/tmp/ac-live/mock_remote_support_api_events.jsonl`):
+  - `REMOTE_API_CALLS=[('/api/v1/agent/remote-support/8101/approve', {'approved': False}), ('/api/v1/agent/remote-support/8102/approve', {'approved': True}), ('/api/v1/agent/remote-support/8102/ready', {'vnc_ready': True}), ('/api/v1/agent/remote-support/8102/ended', {'ended_by': 'agent', 'reason': 'ended from ipc'})]`
+  - `HB_REMOTE_SUPPORT_SAMPLE=[{'state':'active','session_id':8102,'helper_running':False}, {'state':'ended','session_id':8102,'helper_running':False}, ...]`
+- Agent runtime log (`/tmp/ac-live/run_remote_support_api.log`):
+  - `remote support x11vnc started: pid=20498 display=:0 port=5900`
+  - `remote support x11vnc exited with error: exit status 1`
+  - `periodic heartbeat ok: status=ok commands=0`
+
+## 2026-03-03 - Production Smoke (Remote Support API Integration Build)
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test server URL: `http://10.6.100.170:8000`
+- Test setup:
+  - `/tmp/ac-live/config.yaml` (`remote_support.enabled=true`) ile yeni build foreground calistirildi (`55s`).
+
+### Result
+
+- Production heartbeat akisi: OK
+- Install queue runtime logu korundu: OK
+- Bu kosuda yeni komut gelmedi (`commands=0`).
+
+### Evidence
+
+- Agent runtime log (`/tmp/ac-live/run_workers_prod.log`):
+  - `linux agent runtime: ipc=/tmp/ac-live/ipc.sock remote_support_enabled=true`
+  - `linux agent install queue: capacity=32 workers=1`
+  - `periodic heartbeat ok: status=ok commands=0`

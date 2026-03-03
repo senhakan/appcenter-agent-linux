@@ -55,6 +55,9 @@ func (m *SessionManager) Begin(sessionID int, adminName, reason string) (Session
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.status.State == StatePending || m.status.State == StateApproved || m.status.State == StateActive {
+		if m.status.SessionID == sessionID {
+			return m.status, nil
+		}
 		return m.status, fmt.Errorf("another remote support session is already in progress")
 	}
 	m.status = SessionStatus{
