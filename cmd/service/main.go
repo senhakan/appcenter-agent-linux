@@ -23,6 +23,7 @@ import (
 	"appcenter-agent-linux/internal/installer"
 	"appcenter-agent-linux/internal/inventory"
 	"appcenter-agent-linux/internal/ipc"
+	"appcenter-agent-linux/internal/remotesupport"
 	"appcenter-agent-linux/internal/state"
 	"appcenter-agent-linux/internal/system"
 	"appcenter-agent-linux/pkg/utils"
@@ -138,6 +139,14 @@ func main() {
 					return ipc.Response{Status: "error", Error: err.Error()}
 				}
 				return ipc.Response{Status: resp.Status, Message: resp.Message}
+			case "remote_support_env":
+				env := remotesupport.ProbeEnv()
+				status := "ok"
+				msg := "x11vnc is not installed"
+				if env.Installed {
+					msg = "x11vnc is installed"
+				}
+				return ipc.Response{Status: status, Message: msg, Data: env}
 			default:
 				return ipc.Response{Status: "error", Error: "unsupported action"}
 			}

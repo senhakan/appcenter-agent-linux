@@ -1404,3 +1404,37 @@ Not:
   - `linux agent runtime: ipc=/tmp/ac-live/ipc.sock remote_support_enabled=true`
   - `linux agent install queue: capacity=32 workers=1`
   - `periodic heartbeat ok: status=ok commands=0`
+
+## 2026-03-03 - Remote Support Env IPC Live Validation
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test setup:
+  - Agent foreground calisirken Unix socket uzerinden `{"action":"remote_support_env"}` istendi.
+  - `remote_support.enabled=true` korunarak production server URL ile kosuldu.
+
+### Result
+
+- Yeni IPC action `remote_support_env`: OK
+- x11vnc probe bilgisi socket cevabinda dondu: OK
+
+### Evidence
+
+- IPC output:
+  - `{"status":"ok","message":"x11vnc is installed","data":{"x11vnc_path":"/usr/bin/x11vnc","installed":true}}`
+- Agent runtime log (`/tmp/ac-live/run_remote_support_env.log`):
+  - `linux agent runtime: ipc=/tmp/ac-live/ipc.sock remote_support_enabled=true`
+  - `ipc server listening: /tmp/ac-live/ipc.sock`
+  - `periodic heartbeat ok: status=ok commands=0`
+
+## 2026-03-03 - Test Host Tooling Update (x11vnc)
+
+- Host: `10.6.60.88` (`ubuntu`)
+- Kurulan ek arac:
+  - `x11vnc` (`/usr/bin/x11vnc`)
+- Kurulum yontemi:
+  - `sudo apt-get update -y`
+  - `sudo apt-get install -y x11vnc`
+- Not:
+  - Linux agent remote support gelistirmeleri icin test hostta gerekli ek arac kurulumlari onay beklemeden uygulanir.
