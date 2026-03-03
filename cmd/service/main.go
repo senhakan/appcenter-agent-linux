@@ -193,24 +193,28 @@ func main() {
 				}, logger)
 				continue
 			}
+			if !taskGuard.TryStart(cmd.TaskID) {
+				logger.Printf("task=%d duplicate command skipped", cmd.TaskID)
+				continue
+			}
 			if errMsg := validateInstallCommand(cmd); errMsg != "" {
 				logger.Printf("task=%d invalid install command: %s", cmd.TaskID, errMsg)
+				terminalReported := true
 				if cmd.TaskID > 0 {
-					reportTaskStatus(ctx, client, st.UUID, st.SecretKey, cmd.TaskID, api.TaskStatusRequest{
+					terminalReported = reportTaskStatus(ctx, client, st.UUID, st.SecretKey, cmd.TaskID, api.TaskStatusRequest{
 						Status:   "failed",
 						Progress: 100,
 						Message:  "Invalid install command",
 						Error:    errMsg,
 					}, logger)
 				}
+				taskGuard.Finish(cmd.TaskID, terminalReported)
+				persistTaskDeduper(cfg.Paths.StateFile, st, taskGuard, logger)
 				continue
 			}
-			if !taskGuard.TryStart(cmd.TaskID) {
-				logger.Printf("task=%d duplicate command skipped", cmd.TaskID)
-				continue
-			}
+			terminalReported := runInstallCommand(ctx, client, cfg, st.UUID, st.SecretKey, cmd, logger)
+			taskGuard.Finish(cmd.TaskID, terminalReported)
 			persistTaskDeduper(cfg.Paths.StateFile, st, taskGuard, logger)
-			runInstallCommand(ctx, client, cfg, st.UUID, st.SecretKey, cmd, logger)
 		}
 	}
 
@@ -238,7 +242,7 @@ func newUUIDLike() string {
 	return h[0:8] + "-" + h[8:12] + "-" + h[12:16] + "-" + h[16:20] + "-" + h[20:32]
 }
 
-func runInstallCommand(ctx context.Context, client *api.Client, cfg *config.Config, agentUUID, secret string, cmd api.Command, logger *log.Logger) {
+func runInstallCommand(ctx context.Context, client *api.Client, cfg *config.Config, agentUUID, secret string, cmd api.Command, logger *log.Logger) bool {
 	start := time.Now()
 	reportTaskStatus(ctx, client, agentUUID, secret, cmd.TaskID, api.TaskStatusRequest{
 		Status:   "downloading",
@@ -251,14 +255,13 @@ func runInstallCommand(ctx context.Context, client *api.Client, cfg *config.Conf
 	downloadSec := int(time.Since(start).Seconds())
 	if err != nil {
 		logger.Printf("task=%d download failed: %v", cmd.TaskID, err)
-		reportTaskStatus(ctx, client, agentUUID, secret, cmd.TaskID, api.TaskStatusRequest{
+		return reportTaskStatus(ctx, client, agentUUID, secret, cmd.TaskID, api.TaskStatusRequest{
 			Status:              "failed",
 			Progress:            100,
 			Message:             "Download failed",
 			Error:               err.Error(),
 			DownloadDurationSec: downloadSec,
 		}, logger)
-		return
 	}
 	if n > 0 {
 		logger.Printf("task=%d download ok: bytes=%d path=%s", cmd.TaskID, n, outPath)
@@ -266,14 +269,13 @@ func runInstallCommand(ctx context.Context, client *api.Client, cfg *config.Conf
 	defer cleanupDownloadedPackage(outPath, cmd.TaskID, logger)
 	if err := utils.VerifySHA256(outPath, cmd.FileHash); err != nil {
 		logger.Printf("task=%d hash verify failed: %v", cmd.TaskID, err)
-		reportTaskStatus(ctx, client, agentUUID, secret, cmd.TaskID, api.TaskStatusRequest{
+		return reportTaskStatus(ctx, client, agentUUID, secret, cmd.TaskID, api.TaskStatusRequest{
 			Status:              "failed",
 			Progress:            100,
 			Message:             "Hash verification failed",
 			Error:               err.Error(),
 			DownloadDurationSec: downloadSec,
 		}, logger)
-		return
 	}
 
 	reportTaskStatus(ctx, client, agentUUID, secret, cmd.TaskID, api.TaskStatusRequest{
@@ -302,7 +304,7 @@ func runInstallCommand(ctx context.Context, client *api.Client, cfg *config.Conf
 				msg = msg + " | " + trimOutput(stdout, 1200)
 			}
 			logger.Printf("task=%d install timeout: %s", cmd.TaskID, msg)
-			reportTaskStatus(ctx, client, agentUUID, secret, cmd.TaskID, api.TaskStatusRequest{
+			return reportTaskStatus(ctx, client, agentUUID, secret, cmd.TaskID, api.TaskStatusRequest{
 				Status:              "timeout",
 				Progress:            100,
 				Message:             "Install timed out",
@@ -310,7 +312,6 @@ func runInstallCommand(ctx context.Context, client *api.Client, cfg *config.Conf
 				DownloadDurationSec: downloadSec,
 				InstallDurationSec:  installSec,
 			}, logger)
-			return
 		}
 		msg := installErr.Error()
 		if strings.TrimSpace(stdout) != "" {
@@ -318,7 +319,7 @@ func runInstallCommand(ctx context.Context, client *api.Client, cfg *config.Conf
 		}
 		code := exitCode
 		logger.Printf("task=%d install failed: %s", cmd.TaskID, msg)
-		reportTaskStatus(ctx, client, agentUUID, secret, cmd.TaskID, api.TaskStatusRequest{
+		return reportTaskStatus(ctx, client, agentUUID, secret, cmd.TaskID, api.TaskStatusRequest{
 			Status:              "failed",
 			Progress:            100,
 			Message:             "Install failed",
@@ -327,11 +328,10 @@ func runInstallCommand(ctx context.Context, client *api.Client, cfg *config.Conf
 			DownloadDurationSec: downloadSec,
 			InstallDurationSec:  installSec,
 		}, logger)
-		return
 	}
 
 	successCode := 0
-	reportTaskStatus(ctx, client, agentUUID, secret, cmd.TaskID, api.TaskStatusRequest{
+	terminalReported := reportTaskStatus(ctx, client, agentUUID, secret, cmd.TaskID, api.TaskStatusRequest{
 		Status:              "success",
 		Progress:            100,
 		Message:             "Install completed",
@@ -341,9 +341,10 @@ func runInstallCommand(ctx context.Context, client *api.Client, cfg *config.Conf
 		InstallDurationSec:  installSec,
 	}, logger)
 	logger.Printf("task=%d install success", cmd.TaskID)
+	return terminalReported
 }
 
-func reportTaskStatus(ctx context.Context, client *api.Client, agentUUID, secret string, taskID int, req api.TaskStatusRequest, logger *log.Logger) {
+func reportTaskStatus(ctx context.Context, client *api.Client, agentUUID, secret string, taskID int, req api.TaskStatusRequest, logger *log.Logger) bool {
 	const maxAttempts = 3
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		err := client.ReportTaskStatus(ctx, agentUUID, secret, taskID, req)
@@ -351,19 +352,20 @@ func reportTaskStatus(ctx context.Context, client *api.Client, agentUUID, secret
 			if attempt > 1 {
 				logger.Printf("task=%d status report recovered: status=%s progress=%d attempt=%d", taskID, req.Status, req.Progress, attempt)
 			}
-			return
+			return true
 		}
 		logger.Printf("task=%d status report warning: status=%s progress=%d attempt=%d err=%v", taskID, req.Status, req.Progress, attempt, err)
 		if attempt == maxAttempts {
-			return
+			return false
 		}
 		backoff := time.Duration(attempt*300) * time.Millisecond
 		select {
 		case <-ctx.Done():
-			return
+			return false
 		case <-time.After(backoff):
 		}
 	}
+	return false
 }
 
 func buildDownloadFilename(cmd api.Command) string {
@@ -431,7 +433,8 @@ func downloadWithRetry(
 type taskDeduper struct {
 	ttl      time.Duration
 	mu       sync.Mutex
-	execTime map[int]time.Time
+	doneTime map[int]time.Time
+	inflight map[int]time.Time
 }
 
 func newTaskDeduper(ttl time.Duration) *taskDeduper {
@@ -440,7 +443,8 @@ func newTaskDeduper(ttl time.Duration) *taskDeduper {
 	}
 	return &taskDeduper{
 		ttl:      ttl,
-		execTime: make(map[int]time.Time),
+		doneTime: make(map[int]time.Time),
+		inflight: make(map[int]time.Time),
 	}
 }
 
@@ -452,17 +456,39 @@ func (d *taskDeduper) TryStart(taskID int) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.pruneLocked(now)
-	if t, ok := d.execTime[taskID]; ok && now.Sub(t) < d.ttl {
+	if _, ok := d.inflight[taskID]; ok {
 		return false
 	}
-	d.execTime[taskID] = now
+	if t, ok := d.doneTime[taskID]; ok && now.Sub(t) < d.ttl {
+		return false
+	}
+	d.inflight[taskID] = now
 	return true
 }
 
+func (d *taskDeduper) Finish(taskID int, markDone bool) {
+	if taskID <= 0 {
+		return
+	}
+	now := time.Now()
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	delete(d.inflight, taskID)
+	if markDone {
+		d.doneTime[taskID] = now
+	}
+	d.pruneLocked(now)
+}
+
 func (d *taskDeduper) pruneLocked(now time.Time) {
-	for id, t := range d.execTime {
+	for id, t := range d.doneTime {
 		if now.Sub(t) >= d.ttl {
-			delete(d.execTime, id)
+			delete(d.doneTime, id)
+		}
+	}
+	for id, t := range d.inflight {
+		if now.Sub(t) >= d.ttl {
+			delete(d.inflight, id)
 		}
 	}
 }
@@ -479,7 +505,7 @@ func (d *taskDeduper) Seed(items []state.ProcessedTask) {
 		if now.Sub(t) >= d.ttl {
 			continue
 		}
-		d.execTime[it.TaskID] = t
+		d.doneTime[it.TaskID] = t
 	}
 	d.pruneLocked(now)
 }
@@ -489,8 +515,8 @@ func (d *taskDeduper) Snapshot() []state.ProcessedTask {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.pruneLocked(now)
-	out := make([]state.ProcessedTask, 0, len(d.execTime))
-	for id, t := range d.execTime {
+	out := make([]state.ProcessedTask, 0, len(d.doneTime))
+	for id, t := range d.doneTime {
 		out = append(out, state.ProcessedTask{
 			TaskID:         id,
 			ExecutedAtUnix: t.Unix(),
