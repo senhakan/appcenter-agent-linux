@@ -79,6 +79,7 @@ func main() {
 
 	client := api.NewClient(cfg.Server.URL)
 	remoteSupportManager := remotesupport.NewManager(logger, cfg.RemoteSupport.Display, cfg.RemoteSupport.Port)
+	remoteSupportSession := remotesupport.NewSessionManager()
 	info := system.CollectHostInfo()
 	triggerCh := make(chan struct{}, 1)
 	var hasSecret atomic.Bool
@@ -108,6 +109,12 @@ func main() {
 
 	go func() {
 		handler := func(req ipc.Request) ipc.Response {
+			remoteSupportSnapshot := func() any {
+				return map[string]any{
+					"session": remoteSupportSession.Snapshot(),
+					"daemon":  remoteSupportManager.Snapshot(),
+				}
+			}
 			switch strings.ToLower(strings.TrimSpace(req.Action)) {
 			case "ping":
 				return ipc.Response{Status: "ok", Message: "pong"}
@@ -149,22 +156,69 @@ func main() {
 				}
 				return ipc.Response{Status: status, Message: msg, Data: env}
 			case "remote_support_status":
-				return ipc.Response{Status: "ok", Message: "remote support status", Data: remoteSupportManager.Snapshot()}
+				daemon := remoteSupportManager.Snapshot()
+				session := remoteSupportSession.Snapshot()
+				if session.State == remotesupport.StateActive && !daemon.Running {
+					if strings.TrimSpace(daemon.LastError) != "" {
+						remoteSupportSession.Error(fmt.Errorf(daemon.LastError))
+					} else {
+						remoteSupportSession.End("daemon stopped")
+					}
+				}
+				return ipc.Response{Status: "ok", Message: "remote support status", Data: remoteSupportSnapshot()}
+			case "remote_support_session_request":
+				sst, err := remoteSupportSession.Begin(req.SessionID, strings.TrimSpace(req.AdminName), strings.TrimSpace(req.Reason))
+				if err != nil {
+					return ipc.Response{Status: "error", Error: err.Error(), Data: sst}
+				}
+				return ipc.Response{Status: "ok", Message: "remote support session pending approval", Data: remoteSupportSnapshot()}
+			case "remote_support_approve":
+				if !cfg.RemoteSupport.Enabled {
+					return ipc.Response{Status: "error", Error: "remote support is disabled by config", Data: remoteSupportSnapshot()}
+				}
+				_, err := remoteSupportSession.Approve()
+				if err != nil {
+					return ipc.Response{Status: "error", Error: err.Error(), Data: remoteSupportSnapshot()}
+				}
+				_, err = remoteSupportManager.Start()
+				if err != nil {
+					remoteSupportSession.Error(err)
+					return ipc.Response{Status: "error", Error: err.Error(), Data: remoteSupportSnapshot()}
+				}
+				remoteSupportSession.Activate()
+				return ipc.Response{Status: "ok", Message: "remote support approved and started", Data: remoteSupportSnapshot()}
+			case "remote_support_reject":
+				reason := strings.TrimSpace(req.Reason)
+				if reason == "" {
+					reason = "rejected by user"
+				}
+				_, err := remoteSupportSession.Reject(reason)
+				if err != nil {
+					return ipc.Response{Status: "error", Error: err.Error(), Data: remoteSupportSnapshot()}
+				}
+				return ipc.Response{Status: "ok", Message: "remote support rejected", Data: remoteSupportSnapshot()}
+			case "remote_support_end":
+				_, err := remoteSupportManager.Stop()
+				if err != nil {
+					return ipc.Response{Status: "error", Error: err.Error(), Data: remoteSupportSnapshot()}
+				}
+				remoteSupportSession.End("ended")
+				return ipc.Response{Status: "ok", Message: "remote support ended", Data: remoteSupportSnapshot()}
 			case "remote_support_start":
 				if !cfg.RemoteSupport.Enabled {
-					return ipc.Response{Status: "error", Error: "remote support is disabled by config"}
+					return ipc.Response{Status: "error", Error: "remote support is disabled by config", Data: remoteSupportSnapshot()}
 				}
-				st, err := remoteSupportManager.Start()
+				rst, err := remoteSupportManager.Start()
 				if err != nil {
-					return ipc.Response{Status: "error", Error: err.Error(), Data: st}
+					return ipc.Response{Status: "error", Error: err.Error(), Data: rst}
 				}
-				return ipc.Response{Status: "ok", Message: "remote support started", Data: st}
+				return ipc.Response{Status: "ok", Message: "remote support started", Data: rst}
 			case "remote_support_stop":
-				st, err := remoteSupportManager.Stop()
+				rst, err := remoteSupportManager.Stop()
 				if err != nil {
-					return ipc.Response{Status: "error", Error: err.Error(), Data: st}
+					return ipc.Response{Status: "error", Error: err.Error(), Data: rst}
 				}
-				return ipc.Response{Status: "ok", Message: "remote support stopped", Data: st}
+				return ipc.Response{Status: "ok", Message: "remote support stopped", Data: rst}
 			default:
 				return ipc.Response{Status: "error", Error: "unsupported action"}
 			}

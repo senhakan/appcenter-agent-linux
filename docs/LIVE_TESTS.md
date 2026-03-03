@@ -1475,3 +1475,42 @@ Not:
   - `remote support x11vnc started: pid=20131 display=:0 port=5900`
   - `remote support x11vnc exited with error: exit status 1`
   - `periodic heartbeat ok: status=ok commands=0`
+
+## 2026-03-03 - Remote Support Session Approval State Flow Live Validation
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test setup:
+  - Agent production config ile foreground calistirildi (`remote_support.enabled=true`).
+  - IPC uzerinden session state aksiyonlari sirali test edildi:
+    - `remote_support_session_request`
+    - `remote_support_status`
+    - `remote_support_reject`
+    - ikinci `remote_support_session_request`
+    - `remote_support_approve`
+    - `remote_support_status`
+    - `remote_support_end`
+
+### Result
+
+- Session state machine akisi: OK
+  - `idle -> pending_approval -> rejected`
+  - `pending_approval -> active -> error -> ended`
+- Approve sonrasi daemon dususunde otomatik session error gecisi: OK
+  - `remote_support_status` cagrisiyla `daemon.last_error` (`exit status 1`) session'a yansitildi.
+
+### Evidence
+
+- IPC outputs (ozet):
+  - `STATUS_0 ... "session":{"state":"idle"}`
+  - `REQ_1 ... "session":{"state":"pending_approval","session_id":7001,...}`
+  - `REJECT_1 ... "session":{"state":"rejected",...,"last_error":"user rejected"}`
+  - `REQ_2 ... "session":{"state":"pending_approval","session_id":7002,...}`
+  - `APPROVE_2 ... "session":{"state":"active",...}`
+  - `STATUS_3 ... "session":{"state":"error",...,"last_error":"exit status 1"}`
+  - `END_2 ... "session":{"state":"ended",...}`
+- Agent runtime log (`/tmp/ac-live/run_remote_support_session.log`):
+  - `remote support x11vnc started: pid=20336 display=:0 port=5900`
+  - `remote support x11vnc exited with error: exit status 1`
+  - `periodic heartbeat ok: status=ok commands=0`
