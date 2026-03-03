@@ -427,3 +427,81 @@ Not:
 
 Not:
 - Bu test, production servera dokunmadan kontrollu canli host ortaminda yapilmistir.
+
+## 2026-03-03 - Normal Flow Regression Smoke (Post Validation+Cap)
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test server URL: `http://10.6.100.170:8000`
+- Agent build:
+  - install command validation + processed task cap iyilestirmeleri iceren surum
+
+### Result
+
+- Canli install task akis smoke: OK (`task_id=37`)
+- Download/Install/Success zinciri regressionsuz: OK
+
+### Evidence
+
+- Agent runtime log:
+  - `periodic heartbeat ok: status=ok commands=1`
+  - `task=37 download ok: bytes=134 path=/tmp/ac-live/downloads/linux_install_ok.exe`
+  - `task=37 install success`
+- Server DB (`task_history`):
+  - `id=37`, `status=success`, `message=Install completed`, `exit_code=0`
+
+## 2026-03-03 - Invalid Install Command Rejection (Controlled Mock)
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test setup:
+  - Lokal mock API (`127.0.0.1:18083`) ilk heartbeat'te eksik alanli komut dondurdu:
+    - `task_id=901`, `action=install`, `download_url=\"\"`, `file_hash=\"\"`
+  - Agent mock config ile foreground calistirildi.
+
+### Result
+
+- Agent komutu indirime girmeden reject etti: OK
+- Beklenen log:
+  - `task=901 invalid install command: download_url is required`
+- Task status callback:
+  - `status=failed`, `message=Invalid install command`, `error=download_url is required`
+- Download endpoint hic cagirilmadi: OK
+
+### Evidence
+
+- Agent runtime log (`/tmp/ac-live/run_invalid.log`):
+  - `2026/03/03 21:48:51 task=901 invalid install command: download_url is required`
+- Mock event log (`/tmp/ac-live/mock_invalid_events.jsonl`):
+  - `task_status` kaydi:
+    - `{\"kind\":\"task_status\",\"path\":\"/api/v1/agent/task/901/status\",\"body\":{\"status\":\"failed\",\"progress\":100,\"message\":\"Invalid install command\",\"error\":\"download_url is required\"}}`
+  - `download` cagrisi: `0`
+
+Not:
+- Bu test, production servera dokunmadan kontrollu canli host ortaminda yapilmistir.
+
+## 2026-03-03 - Processed Task Cap (500) Live Verification
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test setup:
+  - `/tmp/ac-live/state_captest.json` icine `processed_tasks` listesi 620 kayitla preload edildi.
+  - Agent ayni state dosyasiyla baslatildi.
+
+### Result
+
+- Startup sonrasi state otomatik trim: OK
+- `processed_tasks` kayit sayisi `620 -> 500`
+
+### Evidence
+
+- Test host state check:
+  - `processed_count 500`
+  - `first_task_id 100000`
+  - `last_task_id 100499`
+
+Not:
+- Bu test, production servera dokunmadan kontrollu canli host ortaminda yapilmistir.

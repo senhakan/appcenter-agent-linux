@@ -25,6 +25,8 @@ import (
 	"appcenter-agent-linux/pkg/utils"
 )
 
+const processedTasksMaxEntries = 500
+
 func main() {
 	var cfgPath string
 	flag.StringVar(&cfgPath, "config", "", "config file path")
@@ -186,6 +188,18 @@ func main() {
 					Message:  "Unsupported command action",
 					Error:    fmt.Sprintf("unsupported action: %s", strings.TrimSpace(cmd.Action)),
 				}, logger)
+				continue
+			}
+			if errMsg := validateInstallCommand(cmd); errMsg != "" {
+				logger.Printf("task=%d invalid install command: %s", cmd.TaskID, errMsg)
+				if cmd.TaskID > 0 {
+					reportTaskStatus(ctx, client, st.UUID, st.SecretKey, cmd.TaskID, api.TaskStatusRequest{
+						Status:   "failed",
+						Progress: 100,
+						Message:  "Invalid install command",
+						Error:    errMsg,
+					}, logger)
+				}
 				continue
 			}
 			if !taskGuard.TryStart(cmd.TaskID) {
@@ -482,6 +496,9 @@ func (d *taskDeduper) Snapshot() []state.ProcessedTask {
 	sort.Slice(out, func(i, j int) bool {
 		return out[i].ExecutedAtUnix > out[j].ExecutedAtUnix
 	})
+	if len(out) > processedTasksMaxEntries {
+		out = out[:processedTasksMaxEntries]
+	}
 	return out
 }
 
@@ -493,4 +510,20 @@ func persistTaskDeduper(path string, st *state.AgentState, guard *taskDeduper, l
 	if err := state.Save(path, st); err != nil {
 		logger.Printf("state save warning: %v", err)
 	}
+}
+
+func validateInstallCommand(cmd api.Command) string {
+	if cmd.TaskID <= 0 {
+		return "task_id must be positive"
+	}
+	if cmd.AppID <= 0 {
+		return "app_id must be positive"
+	}
+	if strings.TrimSpace(cmd.DownloadURL) == "" {
+		return "download_url is required"
+	}
+	if strings.TrimSpace(cmd.FileHash) == "" {
+		return "file_hash is required"
+	}
+	return ""
 }
