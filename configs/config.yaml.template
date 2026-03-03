@@ -12,6 +12,9 @@ heartbeat:
 logging:
   file: "/var/log/appcenter-agent/agent.log"
 
+paths:
+  state_file: "/var/lib/appcenter-agent/state.json"
+
 ipc:
   socket_path: "/var/run/appcenter-agent/ipc.sock"
 

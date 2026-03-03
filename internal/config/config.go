@@ -27,6 +27,9 @@ type Config struct {
 	Logging struct {
 		File string `yaml:"file"`
 	} `yaml:"logging"`
+	Paths struct {
+		StateFile string `yaml:"state_file"`
+	} `yaml:"paths"`
 	IPC struct {
 		SocketPath string `yaml:"socket_path"`
 	} `yaml:"ipc"`
@@ -67,6 +70,9 @@ func Load(path string) (*Config, error) {
 	if cfg.Logging.File == "" {
 		cfg.Logging.File = "/var/log/appcenter-agent/agent.log"
 	}
+	if cfg.Paths.StateFile == "" {
+		cfg.Paths.StateFile = "/var/lib/appcenter-agent/state.json"
+	}
 	if cfg.IPC.SocketPath == "" {
 		cfg.IPC.SocketPath = "/var/run/appcenter-agent/ipc.sock"
 	}
@@ -80,7 +86,7 @@ func EnsureDirs(cfg *Config) error {
 	if cfg == nil {
 		return fmt.Errorf("config is nil")
 	}
-	for _, p := range []string{cfg.Logging.File, cfg.IPC.SocketPath} {
+	for _, p := range []string{cfg.Logging.File, cfg.IPC.SocketPath, cfg.Paths.StateFile} {
 		d := filepath.Dir(p)
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			return fmt.Errorf("mkdir %s: %w", d, err)
