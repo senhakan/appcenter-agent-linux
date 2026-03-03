@@ -15,17 +15,20 @@ import (
 	"time"
 )
 
-type request struct {
+type Request struct {
 	Action string `json:"action"`
+	AppID  int    `json:"app_id,omitempty"`
 }
 
-type response struct {
+type Response struct {
 	Status  string `json:"status"`
 	Message string `json:"message,omitempty"`
 	Error   string `json:"error,omitempty"`
 }
 
-func Start(ctx context.Context, socketPath string, logger *log.Logger) error {
+type HandlerFunc func(req Request) Response
+
+func Start(ctx context.Context, socketPath string, logger *log.Logger, handler HandlerFunc) error {
 	if strings.TrimSpace(socketPath) == "" {
 		return fmt.Errorf("socket path is empty")
 	}
@@ -54,37 +57,45 @@ func Start(ctx context.Context, socketPath string, logger *log.Logger) error {
 			logger.Printf("ipc accept warning: %v", err)
 			continue
 		}
-		go handleConn(conn, logger)
+		go handleConn(conn, logger, handler)
 	}
 }
 
-func handleConn(conn net.Conn, logger *log.Logger) {
+func handleConn(conn net.Conn, logger *log.Logger, handler HandlerFunc) {
 	defer conn.Close()
 	_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
 	r := bufio.NewReader(conn)
 	line, err := r.ReadBytes('\n')
 	if err != nil {
-		writeResp(conn, response{Status: "error", Error: "read request failed"})
+		writeResp(conn, Response{Status: "error", Error: "read request failed"})
 		return
 	}
-	var req request
+	var req Request
 	if err := json.Unmarshal(bytesTrimSpace(line), &req); err != nil {
-		writeResp(conn, response{Status: "error", Error: "invalid json"})
+		writeResp(conn, Response{Status: "error", Error: "invalid json"})
 		return
 	}
-	switch strings.ToLower(strings.TrimSpace(req.Action)) {
-	case "ping":
-		writeResp(conn, response{Status: "ok", Message: "pong"})
-	default:
-		writeResp(conn, response{Status: "error", Error: "unsupported action"})
+	if handler != nil {
+		writeResp(conn, handler(req))
+		return
 	}
+	writeResp(conn, defaultHandler(req))
 }
 
-func writeResp(conn net.Conn, resp response) {
+func writeResp(conn net.Conn, resp Response) {
 	b, _ := json.Marshal(resp)
 	_, _ = conn.Write(append(b, '\n'))
 }
 
 func bytesTrimSpace(b []byte) []byte {
 	return []byte(strings.TrimSpace(string(b)))
+}
+
+func defaultHandler(req Request) Response {
+	switch strings.ToLower(strings.TrimSpace(req.Action)) {
+	case "ping":
+		return Response{Status: "ok", Message: "pong"}
+	default:
+		return Response{Status: "error", Error: "unsupported action"}
+	}
 }

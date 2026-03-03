@@ -122,6 +122,11 @@ type InventoryRequest struct {
 	Items         []SoftwareItem `json:"items"`
 }
 
+type MessageResponse struct {
+	Status  string `json:"status"`
+	Message string `json:"message"`
+}
+
 func (c *Client) Register(ctx context.Context, req RegisterRequest) (*RegisterResponse, error) {
 	var out RegisterResponse
 	if err := c.postJSON(ctx, "/api/v1/agent/register", req, nil, &out); err != nil {
@@ -136,6 +141,19 @@ func (c *Client) SubmitInventory(ctx context.Context, agentUUID, secret string, 
 		"X-Agent-Secret": secret,
 	}
 	return c.postJSON(ctx, "/api/v1/agent/inventory", req, headers, nil)
+}
+
+func (c *Client) RequestStoreInstall(ctx context.Context, agentUUID, secret string, appID int) (*MessageResponse, error) {
+	headers := map[string]string{
+		"X-Agent-UUID":   agentUUID,
+		"X-Agent-Secret": secret,
+	}
+	path := fmt.Sprintf("/api/v1/agent/store/%d/install", appID)
+	var out MessageResponse
+	if err := c.postJSON(ctx, path, map[string]any{}, headers, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 func (c *Client) Heartbeat(ctx context.Context, uuid, secret string, req HeartbeatRequest) (*HeartbeatResponse, error) {

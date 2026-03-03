@@ -1026,3 +1026,58 @@ Not:
 - Test host:
   - `/tmp/ac_task_ok.txt` guncellendi (`2026-03-03T22:28:06Z`)
   - `/tmp/ac-live/downloads` bos
+
+## 2026-03-03 - IPC Store Install Action Live Validation
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test setup:
+  - Agent calisirken Unix socket uzerinden su istek gonderildi:
+    - `{\"action\":\"store_install\",\"app_id\":11}`
+  - Socket: `/tmp/ac-live/ipc.sock`
+
+### Result
+
+- IPC action routing: OK
+- Agent, server store-install endpoint'ini cagirdi: OK
+- IPC response alindi:
+  - `{\"status\":\"already_installed\",\"message\":\"Application already installed\"}`
+
+### Evidence
+
+- Server journal (`appcenter` unit):
+  - `10.6.60.88 -> POST /api/v1/agent/store/11/install 200 OK`
+- Test host IPC output (`/tmp/ac-live/ipc_store.out`):
+  - `{"status":"already_installed","message":"Application already installed"}`
+- Agent runtime log:
+  - `ipc server listening: /tmp/ac-live/ipc.sock`
+
+## 2026-03-03 - Normal Flow Regression Smoke (Post IPC Store Action)
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test server URL: `http://10.6.100.170:8000`
+- Agent build:
+  - IPC `store_install` aksiyonu aktif surum
+
+### Result
+
+- Canli install task akis smoke: OK (`task_id=47`)
+- IPC server aktifken install akisi regressionsuz: OK
+
+### Evidence
+
+- Agent runtime log (`/tmp/ac-live/run_ipc_store_regression.log`):
+  - `ipc server listening: /tmp/ac-live/ipc.sock`
+  - `task=47 start install: app_id=11 version=0.0.2 priority=8 force_update=false`
+  - `task=47 install success`
+- Server DB (`task_history`):
+  - `id=47`, `status=success`, `message=Install completed`, `exit_code=0`
+- Server journal (`appcenter` unit):
+  - `GET /api/v1/agent/download/11` `200 OK`
+  - `POST /api/v1/agent/task/47/status` callbacklari `200 OK`
+- Test host:
+  - `/tmp/ac_task_ok.txt` guncellendi (`2026-03-03T22:32:36Z`)
+  - `/tmp/ac-live/downloads` bos

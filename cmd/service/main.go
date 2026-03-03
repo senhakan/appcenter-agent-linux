@@ -104,7 +104,29 @@ func main() {
 	}
 
 	go func() {
-		if err := ipc.Start(ctx, cfg.IPC.SocketPath, logger); err != nil && ctx.Err() == nil {
+		handler := func(req ipc.Request) ipc.Response {
+			switch strings.ToLower(strings.TrimSpace(req.Action)) {
+			case "ping":
+				return ipc.Response{Status: "ok", Message: "pong"}
+			case "store_install":
+				if req.AppID <= 0 {
+					return ipc.Response{Status: "error", Error: "app_id must be positive"}
+				}
+				if st.SecretKey == "" {
+					return ipc.Response{Status: "error", Error: "agent not registered yet"}
+				}
+				callCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+				defer cancel()
+				resp, err := client.RequestStoreInstall(callCtx, st.UUID, st.SecretKey, req.AppID)
+				if err != nil {
+					return ipc.Response{Status: "error", Error: err.Error()}
+				}
+				return ipc.Response{Status: resp.Status, Message: resp.Message}
+			default:
+				return ipc.Response{Status: "error", Error: "unsupported action"}
+			}
+		}
+		if err := ipc.Start(ctx, cfg.IPC.SocketPath, logger, handler); err != nil && ctx.Err() == nil {
 			logger.Printf("ipc server stopped with error: %v", err)
 		}
 	}()
