@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"os"
 	"os/signal"
 	"strings"
 	"sync/atomic"
@@ -172,6 +173,13 @@ func main() {
 		}
 		for _, cmd := range hb.Commands {
 			if strings.ToLower(strings.TrimSpace(cmd.Action)) != "install" {
+				logger.Printf("task=%d unsupported action: %s", cmd.TaskID, strings.TrimSpace(cmd.Action))
+				_ = client.ReportTaskStatus(ctx, st.UUID, st.SecretKey, cmd.TaskID, api.TaskStatusRequest{
+					Status:   "failed",
+					Progress: 100,
+					Message:  "Unsupported command action",
+					Error:    fmt.Sprintf("unsupported action: %s", strings.TrimSpace(cmd.Action)),
+				})
 				continue
 			}
 			runInstallCommand(ctx, client, cfg, st.UUID, st.SecretKey, cmd, logger)
@@ -281,6 +289,9 @@ func runInstallCommand(ctx context.Context, client *api.Client, cfg *config.Conf
 		DownloadDurationSec: downloadSec,
 		InstallDurationSec:  installSec,
 	})
+	if err := os.Remove(outPath); err != nil {
+		logger.Printf("task=%d cleanup warning: %v", cmd.TaskID, err)
+	}
 	logger.Printf("task=%d install success", cmd.TaskID)
 }
 

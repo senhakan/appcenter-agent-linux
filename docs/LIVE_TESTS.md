@@ -106,3 +106,31 @@ Not:
 Not:
 - Canli ortamda `applications` tablosundaki eski SQLite `ck_application_file_type` constraint'i Linux `sh/tar.gz/deb` uploadunu engelledigi icin bu smoke testte `.exe` uzantili script payload kullanilmistir.
 - Test akisinda `app_id=11` kaydi test amacli `target_platform=linux` olarak isaretlenmistir.
+
+## 2026-03-03 - Task Flow Hardening Retest (Cleanup + Unsupported Handling Build)
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test server URL: `http://10.6.100.170:8000`
+- Agent build:
+  - unsupported action icin explicit `failed` status raporlayan
+  - basarili install sonrasi indirilen paketi temizleyen surum
+
+### Result
+
+- Canli install task akis smoke: OK
+- Download -> Install -> Success status: OK (`task_history.id=30`)
+- Download cleanup: OK (indirilen paket dosyasi `downloads` dizininde kalmadi)
+
+### Evidence
+
+- Agent runtime log:
+  - `periodic heartbeat ok: status=ok commands=1`
+  - `task=30 download ok: bytes=134 path=/tmp/ac-live/downloads/linux_install_ok.exe`
+  - `task=30 install success`
+- Server DB (`/var/lib/appcenter/appcenter.db`) `task_history`:
+  - `id=30`, `status=success`, `message=Install completed`, `exit_code=0`
+- Test host:
+  - `/tmp/ac_task_ok.txt` yeniden olustu (`2026-03-03T21:15:15Z`)
+  - `/tmp/ac-live/downloads` dizininde paket dosyasi kalmadi (cleanup dogrulandi)
