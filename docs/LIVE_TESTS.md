@@ -690,3 +690,63 @@ Not:
 - Test host:
   - `/tmp/ac_task_ok.txt` guncellendi (`2026-03-03T22:03:03Z`)
   - `/tmp/ac-live/downloads` bos
+
+## 2026-03-03 - Terminal Status Failure Cooldown (Controlled Mock)
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test setup:
+  - Lokal mock API (`127.0.0.1:18085`) her heartbeat'te ayni install komutunu dondurdu (`task_id=950`).
+  - Mock, `status=success` callback'lerinde bilerek `HTTP 500` dondu.
+  - Agent terminal status fail sonrasinda task tekrarini aninda yapmamak icin cooldown (30s) ile test edildi.
+
+### Result
+
+- Ilk heartbeat:
+  - task bir kez calisti, success status callback'i 3 denemede de fail oldu.
+- Sonraki heartbeat'ler (5s aralik):
+  - task yeniden calismadi, `duplicate command skipped` goruldu (cooldown devrede).
+- Beklenen davranis: OK
+
+### Evidence
+
+- Agent runtime log (`/tmp/ac-live/run_terminalfail2.log`):
+  - `task=950 ... status=success ... attempt=1/2/3 ... HTTP 500`
+  - sonraki heartbeat'lerde: `task=950 duplicate command skipped`
+- Test host:
+  - `/tmp/ac_terminal_fail_task.txt` satir sayisi: `1`
+- Mock event log (`/tmp/ac-live/mock_terminal_fail_events.jsonl`):
+  - `download` cagrisi: `1`
+  - `status=success` callback girisi: `3` (retry denemeleri)
+
+Not:
+- Bu test, production servera dokunmadan kontrollu canli host ortaminda yapilmistir.
+
+## 2026-03-03 - Normal Flow Regression Smoke (Post Terminal-Fail Cooldown)
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test server URL: `http://10.6.100.170:8000`
+- Agent build:
+  - terminal status fail cooldown iyilestirmesi dahil surum
+
+### Result
+
+- Canli install task akis smoke: OK (`task_id=41`)
+- Download/Install/Success zinciri regressionsuz: OK
+
+### Evidence
+
+- Agent runtime log:
+  - `task=41 download ok: bytes=134 path=/tmp/ac-live/downloads/linux_install_ok.exe`
+  - `task=41 install success`
+- Server DB (`task_history`):
+  - `id=41`, `status=success`, `message=Install completed`, `exit_code=0`
+- Server journal (`appcenter` unit):
+  - `GET /api/v1/agent/download/11` `200 OK`
+  - `POST /api/v1/agent/task/41/status` callbacklari `200 OK`
+- Test host:
+  - `/tmp/ac_task_ok.txt` guncellendi (`2026-03-03T22:06:20Z`)
+  - `/tmp/ac-live/downloads` bos

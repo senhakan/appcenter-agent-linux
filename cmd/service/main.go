@@ -442,10 +442,12 @@ func downloadWithRetry(
 }
 
 type taskDeduper struct {
-	ttl      time.Duration
-	mu       sync.Mutex
-	doneTime map[int]time.Time
-	inflight map[int]time.Time
+	ttl           time.Duration
+	retryCooldown time.Duration
+	mu            sync.Mutex
+	doneTime      map[int]time.Time
+	inflight      map[int]time.Time
+	retryAfter    map[int]time.Time
 }
 
 func newTaskDeduper(ttl time.Duration) *taskDeduper {
@@ -453,9 +455,11 @@ func newTaskDeduper(ttl time.Duration) *taskDeduper {
 		ttl = 30 * time.Minute
 	}
 	return &taskDeduper{
-		ttl:      ttl,
-		doneTime: make(map[int]time.Time),
-		inflight: make(map[int]time.Time),
+		ttl:           ttl,
+		retryCooldown: 30 * time.Second,
+		doneTime:      make(map[int]time.Time),
+		inflight:      make(map[int]time.Time),
+		retryAfter:    make(map[int]time.Time),
 	}
 }
 
@@ -468,6 +472,9 @@ func (d *taskDeduper) TryStart(taskID int) bool {
 	defer d.mu.Unlock()
 	d.pruneLocked(now)
 	if _, ok := d.inflight[taskID]; ok {
+		return false
+	}
+	if t, ok := d.retryAfter[taskID]; ok && now.Before(t) {
 		return false
 	}
 	if t, ok := d.doneTime[taskID]; ok && now.Sub(t) < d.ttl {
@@ -487,6 +494,9 @@ func (d *taskDeduper) Finish(taskID int, markDone bool) {
 	delete(d.inflight, taskID)
 	if markDone {
 		d.doneTime[taskID] = now
+		delete(d.retryAfter, taskID)
+	} else {
+		d.retryAfter[taskID] = now.Add(d.retryCooldown)
 	}
 	d.pruneLocked(now)
 }
@@ -500,6 +510,11 @@ func (d *taskDeduper) pruneLocked(now time.Time) {
 	for id, t := range d.inflight {
 		if now.Sub(t) >= d.ttl {
 			delete(d.inflight, id)
+		}
+	}
+	for id, t := range d.retryAfter {
+		if !now.Before(t) {
+			delete(d.retryAfter, id)
 		}
 	}
 }
