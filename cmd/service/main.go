@@ -267,6 +267,17 @@ func runInstallCommand(ctx context.Context, client *api.Client, cfg *config.Conf
 		logger.Printf("task=%d download ok: bytes=%d path=%s", cmd.TaskID, n, outPath)
 	}
 	defer cleanupDownloadedPackage(outPath, cmd.TaskID, logger)
+	if cmd.FileSizeBytes > 0 && n != cmd.FileSizeBytes {
+		errMsg := fmt.Sprintf("download size mismatch: got=%d expected=%d", n, cmd.FileSizeBytes)
+		logger.Printf("task=%d %s", cmd.TaskID, errMsg)
+		return reportTaskStatus(ctx, client, agentUUID, secret, cmd.TaskID, api.TaskStatusRequest{
+			Status:              "failed",
+			Progress:            100,
+			Message:             "Download size mismatch",
+			Error:               errMsg,
+			DownloadDurationSec: downloadSec,
+		}, logger)
+	}
 	if err := utils.VerifySHA256(outPath, cmd.FileHash); err != nil {
 		logger.Printf("task=%d hash verify failed: %v", cmd.TaskID, err)
 		return reportTaskStatus(ctx, client, agentUUID, secret, cmd.TaskID, api.TaskStatusRequest{
@@ -553,6 +564,9 @@ func validateInstallCommand(cmd api.Command) string {
 	}
 	if strings.TrimSpace(cmd.FileHash) == "" {
 		return "file_hash is required"
+	}
+	if cmd.FileSizeBytes < 0 {
+		return "file_size_bytes must be >= 0"
 	}
 	hash := strings.ToLower(strings.TrimSpace(cmd.FileHash))
 	hash = strings.TrimPrefix(hash, "sha256:")

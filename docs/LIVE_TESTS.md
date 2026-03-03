@@ -626,3 +626,67 @@ Not:
 - Test host:
   - `/tmp/ac_task_ok.txt` guncellendi (`2026-03-03T21:58:11Z`)
   - `/tmp/ac-live/downloads` bos
+
+## 2026-03-03 - Download Size Validation Rejection (Controlled Mock)
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test setup:
+  - Lokal mock API (`127.0.0.1:18086`) ayni install komutunu dondurdu (`task_id=960`).
+  - Komutta `file_hash` dogru, ancak `file_size_bytes` bilerek hatali (`9999`) verildi.
+  - Agent mock config ile foreground calistirildi.
+
+### Result
+
+- Download sonrasi boyut kontrolu fail: OK
+- Beklenen log:
+  - `task=960 download size mismatch: got=90 expected=9999`
+- Task status callback:
+  - `downloading(10)` ardindan `failed(100, Download size mismatch)`
+- Kurulum calismadi ve payload temizlendi: OK
+
+### Evidence
+
+- Agent runtime log (`/tmp/ac-live/run_sizemismatch.log`):
+  - `task=960 download ok: bytes=90 path=/tmp/ac-live/downloads_sizemismatch/size_mismatch_install.sh`
+  - `task=960 download size mismatch: got=90 expected=9999`
+- Mock event log (`/tmp/ac-live/mock_size_mismatch_events.jsonl`):
+  - `download` cagrisi: `1`
+  - `task_status`:
+    - `{\"status\":\"downloading\",\"progress\":10,...}`
+    - `{\"status\":\"failed\",\"progress\":100,\"message\":\"Download size mismatch\",\"error\":\"download size mismatch: got=90 expected=9999\"}`
+- Test host:
+  - `NO_INSTALL_OUTPUT` (`/tmp/ac_size_mismatch_should_not_exist.txt` yok)
+  - `CLEANED_SIZE_MISMATCH_PAYLOAD` (indirilen dosya temizlendi)
+
+Not:
+- Bu test, production servera dokunmadan kontrollu canli host ortaminda yapilmistir.
+
+## 2026-03-03 - Normal Flow Regression Smoke (Post Size Validation)
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test server URL: `http://10.6.100.170:8000`
+- Agent build:
+  - download size validation iyilestirmesi dahil surum
+
+### Result
+
+- Canli install task akis smoke: OK (`task_id=40`)
+- Download/Install/Success zinciri regressionsuz: OK
+
+### Evidence
+
+- Agent runtime log:
+  - `task=40 download ok: bytes=134 path=/tmp/ac-live/downloads/linux_install_ok.exe`
+  - `task=40 install success`
+- Server DB (`task_history`):
+  - `id=40`, `status=success`, `message=Install completed`, `exit_code=0`
+- Server journal (`appcenter` unit):
+  - `GET /api/v1/agent/download/11` `200 OK`
+  - `POST /api/v1/agent/task/40/status` callbacklari `200 OK`
+- Test host:
+  - `/tmp/ac_task_ok.txt` guncellendi (`2026-03-03T22:03:03Z`)
+  - `/tmp/ac-live/downloads` bos
