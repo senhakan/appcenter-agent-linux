@@ -134,3 +134,34 @@ Not:
 - Test host:
   - `/tmp/ac_task_ok.txt` yeniden olustu (`2026-03-03T21:15:15Z`)
   - `/tmp/ac-live/downloads` dizininde paket dosyasi kalmadi (cleanup dogrulandi)
+
+## 2026-03-03 - Unsupported Action Live Validation (Controlled Mock)
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test setup:
+  - Test host uzerinde lokal mock API (`127.0.0.1:18080`) ayaga kaldirildi.
+  - Ilk heartbeat cevabinda `commands=[{task_id:999, action:\"noop\"}]` donduruldu.
+  - Agent, bu mock endpoint'e ozel config ile foreground calistirildi.
+
+### Result
+
+- Unsupported action handling: OK
+- Agent logu beklenen sekilde:
+  - `task=999 unsupported action: noop`
+- Agent task status callback'i beklenen sekilde:
+  - `status=failed`
+  - `message=\"Unsupported command action\"`
+  - `error=\"unsupported action: noop\"`
+
+### Evidence
+
+- Test host log (`/tmp/ac-live/run_mock.log`):
+  - `2026/03/03 21:20:02 periodic heartbeat ok: status=ok commands=1`
+  - `2026/03/03 21:20:02 task=999 unsupported action: noop`
+- Mock event log (`/tmp/ac-live/mock_events.jsonl`) son task status kaydi:
+  - `{\"kind\":\"task_status\",\"path\":\"/api/v1/agent/task/999/status\",\"body\":{\"status\":\"failed\",\"progress\":100,\"message\":\"Unsupported command action\",\"error\":\"unsupported action: noop\"}}`
+
+Not:
+- Bu test, production servera dokunmadan kontrollu canli host ortaminda yapilmistir.
