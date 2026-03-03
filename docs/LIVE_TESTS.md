@@ -1594,3 +1594,53 @@ Not:
   - `periodic heartbeat ok: status=ok commands=0`
 - Mock event ozeti (`/tmp/ac-live/mock_remote_support_hb_signal_events.jsonl`):
   - `ENDED_CALLBACK_COUNT=1`
+
+## 2026-03-03 - Remote Support Feature-Flag Guard Live Validation (Controlled Mock)
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test setup:
+  - Lokal mock API (`127.0.0.1:18088`) heartbeat config icinde `remote_support_enabled=false` dondurdu.
+  - Agent local IPC ile `remote_support_session_request(session_id=8301)` tetiklendi.
+  - Sonraki heartbeat'lerde feature kapali oldugu icin guard davranisi izlendi.
+
+### Result
+
+- Feature kapali iken heartbeat'ten gelen remote-support request ignore edildi: OK
+- Feature kapali iken mevcut pending session sonlandirildi: OK
+- Agent server'a `ended` callback gonderdi: OK
+
+### Evidence
+
+- IPC output:
+  - `STATUS_A ... "session":{"state":"pending_approval","session_id":8301,...}`
+  - `STATUS_B ... "session":{"state":"ended","session_id":8301,...,"message":"disabled by config"}`
+- Mock event ozeti (`/tmp/ac-live/mock_remote_support_disabled_events.jsonl`):
+  - `ENDED_CALLBACK_COUNT=1`
+- Agent runtime log (`/tmp/ac-live/run_remote_support_disabled.log`):
+  - `remote support request ignored: feature disabled`
+  - `remote support session terminated because feature disabled`
+  - `periodic heartbeat ok: status=ok commands=0`
+
+## 2026-03-03 - Production Smoke (Remote Support Feature-Flag Guard Build)
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test server URL: `http://10.6.100.170:8000`
+- Test setup:
+  - `/tmp/ac-live/config.yaml` (`remote_support.enabled=true`) ile yeni build foreground calistirildi (`55s`).
+
+### Result
+
+- Production heartbeat akisi: OK
+- Install queue runtime logu korundu: OK
+- Bu kosuda yeni komut gelmedi (`commands=0`).
+
+### Evidence
+
+- Agent runtime log (`/tmp/ac-live/run_workers_prod.log`):
+  - `linux agent runtime: ipc=/tmp/ac-live/ipc.sock remote_support_enabled=true`
+  - `linux agent install queue: capacity=32 workers=1`
+  - `periodic heartbeat ok: status=ok commands=0`

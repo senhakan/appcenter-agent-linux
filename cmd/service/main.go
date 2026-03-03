@@ -396,16 +396,39 @@ func main() {
 		if hb.Config.InventorySyncRequired {
 			nextInventorySync = time.Time{}
 		}
+		remoteSupportAllowed := cfg.RemoteSupport.Enabled && hb.Config.RemoteSupportEnabled
+		if !remoteSupportAllowed {
+			cur := remoteSupportSession.Snapshot()
+			if cur.State == remotesupport.StatePending || cur.State == remotesupport.StateApproved || cur.State == remotesupport.StateActive {
+				if _, err := remoteSupportManager.Stop(); err != nil {
+					logger.Printf("remote support stop warning: %v", err)
+				}
+				remoteSupportSession.End("disabled by config")
+				if cur.SessionID > 0 {
+					callCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+					err := client.RemoteEnded(callCtx, st.UUID, st.SecretKey, cur.SessionID, "agent", "disabled by config")
+					cancel()
+					if err != nil {
+						logger.Printf("remote support ended report warning: %v", err)
+					}
+				}
+				logger.Printf("remote support session terminated because feature disabled")
+			}
+		}
 		if hb.RemoteSupportRequest != nil {
-			_, err := remoteSupportSession.Begin(
-				hb.RemoteSupportRequest.SessionID,
-				strings.TrimSpace(hb.RemoteSupportRequest.AdminName),
-				strings.TrimSpace(hb.RemoteSupportRequest.Reason),
-			)
-			if err != nil {
-				logger.Printf("remote support request ignored: %v", err)
+			if !remoteSupportAllowed {
+				logger.Printf("remote support request ignored: feature disabled")
 			} else {
-				logger.Printf("remote support request received: session_id=%d", hb.RemoteSupportRequest.SessionID)
+				_, err := remoteSupportSession.Begin(
+					hb.RemoteSupportRequest.SessionID,
+					strings.TrimSpace(hb.RemoteSupportRequest.AdminName),
+					strings.TrimSpace(hb.RemoteSupportRequest.Reason),
+				)
+				if err != nil {
+					logger.Printf("remote support request ignored: %v", err)
+				} else {
+					logger.Printf("remote support request received: session_id=%d", hb.RemoteSupportRequest.SessionID)
+				}
 			}
 		}
 		if hb.RemoteSupportEnd != nil && hb.RemoteSupportEnd.SessionID > 0 {
