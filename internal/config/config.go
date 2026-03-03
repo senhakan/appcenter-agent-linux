@@ -31,6 +31,7 @@ type Config struct {
 	Install struct {
 		TimeoutSec    int `yaml:"timeout_sec"`
 		QueueCapacity int `yaml:"queue_capacity"`
+		WorkerCount   int `yaml:"worker_count"`
 	} `yaml:"install"`
 	Logging struct {
 		File string `yaml:"file"`
@@ -83,6 +84,9 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.Install.QueueCapacity <= 0 {
 		cfg.Install.QueueCapacity = 32
+	}
+	if cfg.Install.WorkerCount <= 0 {
+		cfg.Install.WorkerCount = 1
 	}
 	if cfg.Logging.File == "" {
 		cfg.Logging.File = "/var/log/appcenter-agent/agent.log"

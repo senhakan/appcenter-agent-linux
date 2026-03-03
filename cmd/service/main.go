@@ -57,7 +57,7 @@ func main() {
 
 	logger.Printf("linux agent starting: version=%s server=%s", cfg.Agent.Version, cfg.Server.URL)
 	logger.Printf("linux agent runtime: ipc=%s remote_support_enabled=%t", cfg.IPC.SocketPath, cfg.RemoteSupport.Enabled)
-	logger.Printf("linux agent install queue capacity=%d", cfg.Install.QueueCapacity)
+	logger.Printf("linux agent install queue: capacity=%d workers=%d", cfg.Install.QueueCapacity, cfg.Install.WorkerCount)
 
 	st, err := state.Load(cfg.Paths.StateFile)
 	if err != nil {
@@ -187,33 +187,37 @@ func main() {
 	}
 	installQueue := make(chan installJob, cfg.Install.QueueCapacity)
 	var activeInstalls atomic.Int32
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case job := <-installQueue:
-				cmd := job.command
-				func() {
-					activeInstalls.Add(1)
-					defer activeInstalls.Add(-1)
+	for workerID := 1; workerID <= cfg.Install.WorkerCount; workerID++ {
+		id := workerID
+		go func() {
+			logger.Printf("install worker started: id=%d", id)
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case job := <-installQueue:
+					cmd := job.command
+					func() {
+						activeInstalls.Add(1)
+						defer activeInstalls.Add(-1)
 
-					reportTaskStatus(ctx, client, st.UUID, st.SecretKey, cmd.TaskID, api.TaskStatusRequest{
-						Status:   "downloading",
-						Progress: 5,
-						Message:  "Queued for install",
-					}, logger)
-					logger.Printf(
-						"task=%d start install: app_id=%d version=%s priority=%d force_update=%t",
-						cmd.TaskID, cmd.AppID, strings.TrimSpace(cmd.AppVersion), cmd.Priority, cmd.ForceUpdate,
-					)
-					terminalReported := runInstallCommand(ctx, client, cfg, st.UUID, st.SecretKey, cmd, logger)
-					taskGuard.Finish(cmd.TaskID, terminalReported)
-					persistTaskDeduper(cfg.Paths.StateFile, st, taskGuard, logger)
-				}()
+						reportTaskStatus(ctx, client, st.UUID, st.SecretKey, cmd.TaskID, api.TaskStatusRequest{
+							Status:   "downloading",
+							Progress: 5,
+							Message:  "Queued for install",
+						}, logger)
+						logger.Printf(
+							"task=%d start install: app_id=%d version=%s priority=%d force_update=%t worker_id=%d",
+							cmd.TaskID, cmd.AppID, strings.TrimSpace(cmd.AppVersion), cmd.Priority, cmd.ForceUpdate, id,
+						)
+						terminalReported := runInstallCommand(ctx, client, cfg, st.UUID, st.SecretKey, cmd, logger)
+						taskGuard.Finish(cmd.TaskID, terminalReported)
+						persistTaskDeduper(cfg.Paths.StateFile, st, taskGuard, logger)
+					}()
+				}
 			}
-		}
-	}()
+		}()
+	}
 	var nextInventorySync time.Time
 	inventoryInterval := 30 * time.Minute
 

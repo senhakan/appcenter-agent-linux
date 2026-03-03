@@ -1347,3 +1347,60 @@ Not:
   - `linux agent runtime: ipc=/tmp/ac-live/ipc.sock remote_support_enabled=true`
   - `linux agent install queue capacity=32`
   - `periodic heartbeat ok: status=ok commands=0`
+
+## 2026-03-03 - Install WorkerCount Parallelism Live Validation (Controlled Mock)
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test setup:
+  - Lokal mock API (`127.0.0.1:18085`) ilk heartbeat'te 2 install komutu dondurdu (`task_id=9941`, `task_id=9942`).
+  - Payload `sleep 10` olacak sekilde hazirlandi.
+  - Agent `install.worker_count=2`, `install.queue_capacity=4` ile foreground calistirildi.
+
+### Result
+
+- Paralel worker calismasi: OK
+  - Iki task ayni saniyede baslayip ayni saniyede tamamlandi.
+- Beklenen sure kazanci: OK
+  - Ilk baslangictan son basariya toplam sure `10s` (sirali olsaydi ~20s).
+
+### Evidence
+
+- Hesaplanan kanit (test host):
+  - `SUCCESS_EVENTS=2`
+  - `SUCCESS_SPREAD_SEC=0.0`
+  - `RUNTIME_FROM_FIRST_START_TO_LAST_SUCCESS_SEC=10`
+  - `TASK_ROWS=[('9942','start install','23:03:23'),('9941','start install','23:03:23'),('9942','install success','23:03:33'),('9941','install success','23:03:33')]`
+- Agent runtime log (`/tmp/ac-live/run_install_workers.log`):
+  - `linux agent install queue: capacity=4 workers=2`
+  - `install worker started: id=1`
+  - `install worker started: id=2`
+  - `task=9941 queued for install`
+  - `task=9942 queued for install`
+  - `task=9942 start install ... worker_id=1`
+  - `task=9941 start install ... worker_id=2`
+  - `task=9942 install success`
+  - `task=9941 install success`
+
+## 2026-03-03 - Production Smoke (WorkerCount Build)
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test server URL: `http://10.6.100.170:8000`
+- Test setup:
+  - `/tmp/ac-live/config.yaml` (`remote_support.enabled=true`) ile yeni build foreground calistirildi (`55s`).
+
+### Result
+
+- Production heartbeat akisi: OK
+- Runtime log yeni queue formatini yansitiyor: OK (`capacity=32 workers=1`)
+- Bu kosuda yeni install komutu gelmedi (`commands=0`).
+
+### Evidence
+
+- Agent runtime log (`/tmp/ac-live/run_workers_prod.log`):
+  - `linux agent runtime: ipc=/tmp/ac-live/ipc.sock remote_support_enabled=true`
+  - `linux agent install queue: capacity=32 workers=1`
+  - `periodic heartbeat ok: status=ok commands=0`
