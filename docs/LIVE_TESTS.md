@@ -1567,3 +1567,30 @@ Not:
   - `linux agent runtime: ipc=/tmp/ac-live/ipc.sock remote_support_enabled=true`
   - `linux agent install queue: capacity=32 workers=1`
   - `periodic heartbeat ok: status=ok commands=0`
+
+## 2026-03-03 - Heartbeat RemoteSupport Request/End Signal Handling (Controlled Mock)
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test setup:
+  - Lokal mock API (`127.0.0.1:18087`) heartbeat response alanlarini kontrollu dondurdu:
+    - 1. heartbeat: `remote_support_request={session_id:8201,...}`
+    - 3. heartbeat: `remote_support_end={session_id:8201}`
+  - Agent bu mock config ile foreground calistirildi.
+
+### Result
+
+- Heartbeat `remote_support_request` isleme: OK
+  - Session pending state'e alindi.
+- Heartbeat `remote_support_end` isleme: OK
+  - Agent end sinyalini isleyip `ended` callback gonderdi.
+
+### Evidence
+
+- Agent runtime log (`/tmp/ac-live/run_remote_support_hb_signal.log`):
+  - `remote support request received: session_id=8201`
+  - `remote support end signal handled: session_id=8201`
+  - `periodic heartbeat ok: status=ok commands=0`
+- Mock event ozeti (`/tmp/ac-live/mock_remote_support_hb_signal_events.jsonl`):
+  - `ENDED_CALLBACK_COUNT=1`
