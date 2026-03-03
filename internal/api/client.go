@@ -7,7 +7,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/cookiejar"
 	"net/url"
+	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -18,10 +22,12 @@ type Client struct {
 }
 
 func NewClient(baseURL string) *Client {
+	jar, _ := cookiejar.New(nil)
 	return &Client{
 		baseURL: strings.TrimRight(baseURL, "/"),
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
+			Jar:     jar,
 		},
 	}
 }
@@ -63,13 +69,39 @@ type HeartbeatConfig struct {
 }
 
 type HeartbeatResponse struct {
-	Status string          `json:"status"`
-	Config HeartbeatConfig `json:"config"`
+	Status   string          `json:"status"`
+	Config   HeartbeatConfig `json:"config"`
+	Commands []Command       `json:"commands"`
 }
 
 type SignalResponse struct {
 	Status string `json:"status"`
 	Reason string `json:"reason,omitempty"`
+}
+
+type Command struct {
+	TaskID        int    `json:"task_id"`
+	Action        string `json:"action"`
+	AppID         int    `json:"app_id"`
+	AppName       string `json:"app_name,omitempty"`
+	AppVersion    string `json:"app_version,omitempty"`
+	DownloadURL   string `json:"download_url,omitempty"`
+	FileHash      string `json:"file_hash,omitempty"`
+	FileSizeBytes int64  `json:"file_size_bytes,omitempty"`
+	InstallArgs   string `json:"install_args,omitempty"`
+	ForceUpdate   bool   `json:"force_update,omitempty"`
+	Priority      int    `json:"priority,omitempty"`
+}
+
+type TaskStatusRequest struct {
+	Status              string `json:"status"`
+	Progress            int    `json:"progress,omitempty"`
+	Message             string `json:"message,omitempty"`
+	ExitCode            *int   `json:"exit_code,omitempty"`
+	InstalledVersion    string `json:"installed_version,omitempty"`
+	DownloadDurationSec int    `json:"download_duration_sec,omitempty"`
+	InstallDurationSec  int    `json:"install_duration_sec,omitempty"`
+	Error               string `json:"error,omitempty"`
 }
 
 func (c *Client) Register(ctx context.Context, req RegisterRequest) (*RegisterResponse, error) {
@@ -108,6 +140,77 @@ func (c *Client) WaitForSignal(ctx context.Context, uuid, secret string, timeout
 		return nil, err
 	}
 	return &out, nil
+}
+
+func (c *Client) DownloadToFile(ctx context.Context, agentUUID, secret, downloadURL, outDir, defaultName string) (string, int64, error) {
+	if downloadURL == "" {
+		return "", 0, fmt.Errorf("download url is empty")
+	}
+	u := downloadURL
+	if strings.HasPrefix(downloadURL, "/") {
+		u = c.baseURL + downloadURL
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return "", 0, fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("X-Agent-UUID", agentUUID)
+	req.Header.Set("X-Agent-Secret", secret)
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", 0, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		b, _ := io.ReadAll(resp.Body)
+		return "", 0, fmt.Errorf("download failed: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
+	}
+
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
+		return "", 0, fmt.Errorf("mkdir download dir: %w", err)
+	}
+	outName := defaultName
+	if cd := resp.Header.Get("Content-Disposition"); cd != "" {
+		if n := parseFilenameFromContentDisposition(cd); n != "" {
+			outName = n
+		}
+	}
+	outPath := filepath.Join(outDir, outName)
+	f, err := os.OpenFile(outPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+	if err != nil {
+		return "", 0, fmt.Errorf("open download file: %w", err)
+	}
+	defer f.Close()
+	n, err := io.Copy(f, resp.Body)
+	if err != nil {
+		return "", 0, fmt.Errorf("write download file: %w", err)
+	}
+	return outPath, n, nil
+}
+
+func (c *Client) ReportTaskStatus(ctx context.Context, agentUUID, secret string, taskID int, reqBody TaskStatusRequest) error {
+	headers := map[string]string{
+		"X-Agent-UUID":   agentUUID,
+		"X-Agent-Secret": secret,
+	}
+	path := fmt.Sprintf("/api/v1/agent/task/%d/status", taskID)
+	return c.postJSON(ctx, path, reqBody, headers, nil)
+}
+
+var cdFilenameRe = regexp.MustCompile(`(?i)filename=\"?([^\";]+)`)
+
+func parseFilenameFromContentDisposition(v string) string {
+	m := cdFilenameRe.FindStringSubmatch(v)
+	if len(m) < 2 {
+		return ""
+	}
+	name := strings.TrimSpace(m[1])
+	name = strings.Trim(name, "\"")
+	name = filepath.Base(name)
+	if name == "." || name == "/" || name == "" {
+		return ""
+	}
+	return name
 }
 
 func (c *Client) postJSON(ctx context.Context, path string, body any, headers map[string]string, out any) error {

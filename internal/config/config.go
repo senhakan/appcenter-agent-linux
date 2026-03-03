@@ -24,6 +24,12 @@ type Config struct {
 	Heartbeat struct {
 		IntervalSec int `yaml:"interval_sec"`
 	} `yaml:"heartbeat"`
+	Download struct {
+		TempDir string `yaml:"temp_dir"`
+	} `yaml:"download"`
+	Install struct {
+		TimeoutSec int `yaml:"timeout_sec"`
+	} `yaml:"install"`
 	Logging struct {
 		File string `yaml:"file"`
 	} `yaml:"logging"`
@@ -67,6 +73,12 @@ func Load(path string) (*Config, error) {
 	if cfg.Heartbeat.IntervalSec <= 0 {
 		cfg.Heartbeat.IntervalSec = 60
 	}
+	if cfg.Download.TempDir == "" {
+		cfg.Download.TempDir = "/var/lib/appcenter-agent/downloads"
+	}
+	if cfg.Install.TimeoutSec <= 0 {
+		cfg.Install.TimeoutSec = 1800
+	}
 	if cfg.Logging.File == "" {
 		cfg.Logging.File = "/var/log/appcenter-agent/agent.log"
 	}
@@ -86,7 +98,7 @@ func EnsureDirs(cfg *Config) error {
 	if cfg == nil {
 		return fmt.Errorf("config is nil")
 	}
-	for _, p := range []string{cfg.Logging.File, cfg.IPC.SocketPath, cfg.Paths.StateFile} {
+	for _, p := range []string{cfg.Logging.File, cfg.IPC.SocketPath, cfg.Paths.StateFile, cfg.Download.TempDir + "/.keep"} {
 		d := filepath.Dir(p)
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			return fmt.Errorf("mkdir %s: %w", d, err)

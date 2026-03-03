@@ -9,6 +9,12 @@ agent:
 heartbeat:
   interval_sec: 60
 
+download:
+  temp_dir: "/var/lib/appcenter-agent/downloads"
+
+install:
+  timeout_sec: 1800
+
 logging:
   file: "/var/log/appcenter-agent/agent.log"
 

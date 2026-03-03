@@ -1,5 +1,11 @@
 # Live Tests
 
+## Policy
+
+- 2026-03-03 itibariyla operasyon karari:
+  - Linux agent kodunda yapilan her teknik degisiklik sonrasinda canli test hostu (`10.6.60.88`) uzerinde dogrulama zorunludur.
+  - Bu dogrulama tamamlanmadan is "tamamlandi" kabul edilmez.
+
 ## 2026-03-03 - Linux Agent Register/Heartbeat Smoke
 
 - Test host:
@@ -68,3 +74,35 @@ Not:
   - `sudo apt-get install -y curl ripgrep jq`
 - Operasyon notu:
   - Bu test hostunda Linux agent canli testlerini hizlandirmak icin gerekli ek araclari onay beklemeden kurma yetkisi vardir.
+
+## 2026-03-03 - Task Status + Download/Install Temel Akis Smoke
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test server URL: `http://10.6.100.170:8000`
+- Agent build:
+  - task status reporting + download + install temel akisli surum
+
+### Result
+
+- Agent command alma: OK (`commands=1`)
+- Download: OK
+- Install: OK
+- Task status report: OK (`success`, `exit_code=0`)
+- Hostta beklenen cikti dosyasi olustu: `/tmp/ac_task_ok.txt`
+
+### Evidence
+
+- Agent runtime log:
+  - `periodic heartbeat ok: status=ok commands=1`
+  - `task=29 download ok: bytes=134 path=/tmp/ac-live/downloads/linux_install_ok.exe`
+  - `task=29 install success`
+- Server DB (`/var/lib/appcenter/appcenter.db`) `task_history`:
+  - `id=29`, `status=success`, `message=Install completed`, `exit_code=0`
+- Test host dosya kaniti:
+  - `/tmp/ac_task_ok.txt` icerigi: `linux task install ok via exe payload ...`
+
+Not:
+- Canli ortamda `applications` tablosundaki eski SQLite `ck_application_file_type` constraint'i Linux `sh/tar.gz/deb` uploadunu engelledigi icin bu smoke testte `.exe` uzantili script payload kullanilmistir.
+- Test akisinda `app_id=11` kaydi test amacli `target_platform=linux` olarak isaretlenmistir.
