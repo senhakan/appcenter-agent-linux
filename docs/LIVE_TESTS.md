@@ -328,3 +328,33 @@ Not:
 - Test host:
   - `CLEANED_TIMEOUT_PAYLOAD` (download klasorunde timeout payload yok)
   - `NO_TIMEOUT_OUTPUT_FILE` (`/tmp/ac_task_timeout_should_not_exist.txt` olusmadi)
+
+## 2026-03-03 - Download Retry/Backoff Retest
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test server URL: `http://10.6.100.170:8000`
+- Agent build:
+  - download asamasina 3 deneme + kademeli backoff ekli surum
+
+### Result
+
+- Canli install task akis smoke: OK (`task_id=36`)
+- Download/Install/Success zinciri regressionsuz: OK
+- Download cleanup davranisi korunuyor: OK
+
+### Evidence
+
+- Agent runtime log:
+  - `periodic heartbeat ok: status=ok commands=1`
+  - `task=36 download ok: bytes=134 path=/tmp/ac-live/downloads/linux_install_ok.exe`
+  - `task=36 install success`
+- Server DB (`task_history`):
+  - `id=36`, `status=success`, `message=Install completed`, `exit_code=0`
+- Server journal (`appcenter` unit):
+  - `GET /api/v1/agent/download/11` `200 OK`
+  - `POST /api/v1/agent/task/36/status` callbacklari `200 OK`
+- Test host:
+  - `/tmp/ac_task_ok.txt` guncellendi (`2026-03-03T21:38:39Z`)
+  - `/tmp/ac-live/downloads` bos

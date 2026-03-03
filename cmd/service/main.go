@@ -220,7 +220,7 @@ func runInstallCommand(ctx context.Context, client *api.Client, cfg *config.Conf
 	}, logger)
 
 	fileName := buildDownloadFilename(cmd)
-	outPath, n, err := client.DownloadToFile(ctx, agentUUID, secret, cmd.DownloadURL, cfg.Download.TempDir, fileName)
+	outPath, n, err := downloadWithRetry(ctx, client, agentUUID, secret, cmd, cfg.Download.TempDir, fileName, logger)
 	downloadSec := int(time.Since(start).Seconds())
 	if err != nil {
 		logger.Printf("task=%d download failed: %v", cmd.TaskID, err)
@@ -368,4 +368,35 @@ func cleanupDownloadedPackage(path string, taskID int, logger *log.Logger) {
 	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 		logger.Printf("task=%d cleanup warning: %v", taskID, err)
 	}
+}
+
+func downloadWithRetry(
+	ctx context.Context,
+	client *api.Client,
+	agentUUID, secret string,
+	cmd api.Command,
+	outDir, fileName string,
+	logger *log.Logger,
+) (string, int64, error) {
+	const maxAttempts = 3
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		outPath, n, err := client.DownloadToFile(ctx, agentUUID, secret, cmd.DownloadURL, outDir, fileName)
+		if err == nil {
+			if attempt > 1 {
+				logger.Printf("task=%d download recovered: attempt=%d", cmd.TaskID, attempt)
+			}
+			return outPath, n, nil
+		}
+		logger.Printf("task=%d download attempt=%d failed: %v", cmd.TaskID, attempt, err)
+		if attempt == maxAttempts {
+			return "", 0, err
+		}
+		backoff := time.Duration(attempt*400) * time.Millisecond
+		select {
+		case <-ctx.Done():
+			return "", 0, ctx.Err()
+		case <-time.After(backoff):
+		}
+	}
+	return "", 0, fmt.Errorf("download retry exhausted")
 }
