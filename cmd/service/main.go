@@ -186,6 +186,7 @@ func main() {
 		command api.Command
 	}
 	installQueue := make(chan installJob, cfg.Install.QueueCapacity)
+	var activeInstalls atomic.Int32
 	go func() {
 		for {
 			select {
@@ -193,18 +194,23 @@ func main() {
 				return
 			case job := <-installQueue:
 				cmd := job.command
-				reportTaskStatus(ctx, client, st.UUID, st.SecretKey, cmd.TaskID, api.TaskStatusRequest{
-					Status:   "downloading",
-					Progress: 5,
-					Message:  "Queued for install",
-				}, logger)
-				logger.Printf(
-					"task=%d start install: app_id=%d version=%s priority=%d force_update=%t",
-					cmd.TaskID, cmd.AppID, strings.TrimSpace(cmd.AppVersion), cmd.Priority, cmd.ForceUpdate,
-				)
-				terminalReported := runInstallCommand(ctx, client, cfg, st.UUID, st.SecretKey, cmd, logger)
-				taskGuard.Finish(cmd.TaskID, terminalReported)
-				persistTaskDeduper(cfg.Paths.StateFile, st, taskGuard, logger)
+				func() {
+					activeInstalls.Add(1)
+					defer activeInstalls.Add(-1)
+
+					reportTaskStatus(ctx, client, st.UUID, st.SecretKey, cmd.TaskID, api.TaskStatusRequest{
+						Status:   "downloading",
+						Progress: 5,
+						Message:  "Queued for install",
+					}, logger)
+					logger.Printf(
+						"task=%d start install: app_id=%d version=%s priority=%d force_update=%t",
+						cmd.TaskID, cmd.AppID, strings.TrimSpace(cmd.AppVersion), cmd.Priority, cmd.ForceUpdate,
+					)
+					terminalReported := runInstallCommand(ctx, client, cfg, st.UUID, st.SecretKey, cmd, logger)
+					taskGuard.Finish(cmd.TaskID, terminalReported)
+					persistTaskDeduper(cfg.Paths.StateFile, st, taskGuard, logger)
+				}()
 			}
 		}
 	}()
@@ -235,13 +241,17 @@ func main() {
 			_ = state.Save(cfg.Paths.StateFile, st)
 			hasSecret.Store(true)
 		}
+		currentStatus := "Idle"
+		if activeInstalls.Load() > 0 || len(installQueue) > 0 {
+			currentStatus = "Busy"
+		}
 		hb, hbErr := client.Heartbeat(ctx, st.UUID, st.SecretKey, api.HeartbeatRequest{
 			Hostname:      info.Hostname,
 			IPAddress:     info.IPAddress,
 			OSUser:        system.CurrentOSUser(),
 			AgentVersion:  cfg.Agent.Version,
 			DiskFreeGB:    info.DiskFreeGB,
-			CurrentStatus: "Idle",
+			CurrentStatus: currentStatus,
 			AppsChanged:   false,
 			InstalledApps: []any{},
 			InventoryHash: st.InventoryHash,

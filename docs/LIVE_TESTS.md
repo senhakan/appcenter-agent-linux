@@ -1298,3 +1298,52 @@ Not:
   - `linux agent runtime: ipc=/tmp/ac-live/ipc.sock remote_support_enabled=true`
   - `linux agent install queue capacity=32`
   - `periodic heartbeat ok: status=ok commands=0`
+
+## 2026-03-03 - Dynamic Heartbeat CurrentStatus Live Validation (Controlled Mock)
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test setup:
+  - Lokal mock API (`127.0.0.1:18084`) uzun sureli tek install komutu dondurdu (`task_id=9931`, `sleep 12`).
+  - Agent `heartbeat.interval_sec=3` ile foreground calistirildi.
+  - Mock heartbeat body icindeki `current_status` alani kaydedildi.
+
+### Result
+
+- Heartbeat `current_status` dinamik hesaplama: OK
+  - Install devam ederken `Busy`, sonrasinda tekrar `Idle` goruldu.
+- Queue/worker akis regression: OK
+  - `queued for install` -> `start install` -> `install success`
+
+### Evidence
+
+- Mock event ozeti (`/tmp/ac-live/mock_hb_busy_events.jsonl`):
+  - `HEARTBEAT_STATUS_SEQ=['Idle','Busy','Busy','Busy','Busy','Idle','Idle','Idle','Idle','Idle']`
+  - `HAS_BUSY=True`
+- Agent runtime log (`/tmp/ac-live/run_hb_busy.log`):
+  - `task=9931 queued for install`
+  - `task=9931 start install: app_id=22 version=1.0.0 priority=1 force_update=false`
+  - `task=9931 install success`
+
+## 2026-03-03 - Production Smoke (Dynamic CurrentStatus Build)
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test server URL: `http://10.6.100.170:8000`
+- Test setup:
+  - `/tmp/ac-live/config.yaml` (`remote_support.enabled=true`) ile yeni build foreground calistirildi (`55s`).
+
+### Result
+
+- Production heartbeat akisi: OK
+- Runtime queue capacity logu korunuyor: OK (`32`)
+- Bu kosuda yeni install komutu gelmedi (`commands=0`).
+
+### Evidence
+
+- Agent runtime log (`/tmp/ac-live/run_queue_capacity_prod.log`):
+  - `linux agent runtime: ipc=/tmp/ac-live/ipc.sock remote_support_enabled=true`
+  - `linux agent install queue capacity=32`
+  - `periodic heartbeat ok: status=ok commands=0`
