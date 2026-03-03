@@ -29,7 +29,8 @@ type Config struct {
 		MaxSizeBytes int64  `yaml:"max_size_bytes"`
 	} `yaml:"download"`
 	Install struct {
-		TimeoutSec int `yaml:"timeout_sec"`
+		TimeoutSec    int `yaml:"timeout_sec"`
+		QueueCapacity int `yaml:"queue_capacity"`
 	} `yaml:"install"`
 	Logging struct {
 		File string `yaml:"file"`
@@ -79,6 +80,9 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.Install.TimeoutSec <= 0 {
 		cfg.Install.TimeoutSec = 1800
+	}
+	if cfg.Install.QueueCapacity <= 0 {
+		cfg.Install.QueueCapacity = 32
 	}
 	if cfg.Logging.File == "" {
 		cfg.Logging.File = "/var/log/appcenter-agent/agent.log"

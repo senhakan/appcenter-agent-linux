@@ -15,6 +15,7 @@ download:
 
 install:
   timeout_sec: 1800
+  queue_capacity: 32
 
 logging:
   file: "/var/log/appcenter-agent/agent.log"

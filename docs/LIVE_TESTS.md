@@ -1195,3 +1195,58 @@ Not:
   - `periodic heartbeat ok: status=ok commands=0` (tekrarlayan)
 - Config kaniti:
   - `/tmp/ac-live/config.yaml` satiri: `enabled: true`
+
+## 2026-03-03 - Install Queue Capacity Config Live Validation (Controlled Mock)
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test setup:
+  - Lokal mock API (`127.0.0.1:18082`) ile tek heartbeat'te 4 adet install komutu donduruldu.
+  - Agent `install.queue_capacity=1` ile foreground calistirildi.
+  - Payload install suresi `sleep 18` olarak ayarlandi.
+
+### Result
+
+- `install.queue_capacity` konfig uygulandi: OK
+- Queue backpressure davranisi: OK
+  - Ilk iki task kuyruga alinip tamamlandi.
+  - Sonraki iki task `Install queue is full` ile `failed` raporlandi.
+
+### Evidence
+
+- Agent runtime log (`/tmp/ac-live/run_queue_capacity.log`):
+  - `linux agent install queue capacity=1`
+  - `task=9911 queued for install`
+  - `task=9912 queued for install`
+  - `task=9913 install queue is full`
+  - `task=9914 install queue is full`
+  - `task=9911 install success`
+  - `task=9912 install success`
+- Mock event ozeti (`/tmp/ac-live/mock_queue_capacity_events.jsonl`):
+  - `TASK_STATUS_TOTAL=10`
+  - `QUEUE_FULL_FAILED=2` (`/api/v1/agent/task/9913/status`, `/api/v1/agent/task/9914/status`)
+  - `SUCCESS_TOTAL=2`
+
+## 2026-03-03 - Production Smoke (Queue Capacity Build)
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test server URL: `http://10.6.100.170:8000`
+- Test setup:
+  - `/tmp/ac-live/config.yaml` icinde `remote_support.enabled=true` dogrulandi.
+  - Yeni build foreground calistirildi (`55s`).
+
+### Result
+
+- Production heartbeat akisi: OK
+- Varsayilan queue capacity runtime logu: OK (`32`)
+- Bu kosuda yeni install komutu gelmedi (`commands=0`).
+
+### Evidence
+
+- Agent runtime log (`/tmp/ac-live/run_queue_capacity_prod.log`):
+  - `linux agent runtime: ipc=/tmp/ac-live/ipc.sock remote_support_enabled=true`
+  - `linux agent install queue capacity=32`
+  - `periodic heartbeat ok: status=ok commands=0`

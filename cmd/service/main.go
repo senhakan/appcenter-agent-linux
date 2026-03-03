@@ -57,6 +57,7 @@ func main() {
 
 	logger.Printf("linux agent starting: version=%s server=%s", cfg.Agent.Version, cfg.Server.URL)
 	logger.Printf("linux agent runtime: ipc=%s remote_support_enabled=%t", cfg.IPC.SocketPath, cfg.RemoteSupport.Enabled)
+	logger.Printf("linux agent install queue capacity=%d", cfg.Install.QueueCapacity)
 
 	st, err := state.Load(cfg.Paths.StateFile)
 	if err != nil {
@@ -184,7 +185,7 @@ func main() {
 	type installJob struct {
 		command api.Command
 	}
-	installQueue := make(chan installJob, 32)
+	installQueue := make(chan installJob, cfg.Install.QueueCapacity)
 	go func() {
 		for {
 			select {
