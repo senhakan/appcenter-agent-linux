@@ -11,7 +11,7 @@ import (
 
 func PromptApproval(display, adminName, reason string, timeoutSec int, logger *log.Logger) (approved bool, decided bool, err error) {
 	if timeoutSec <= 0 {
-		timeoutSec = 120
+		timeoutSec = 30
 	}
 	display = strings.TrimSpace(display)
 	if display == "" {

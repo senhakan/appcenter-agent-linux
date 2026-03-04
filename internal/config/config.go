@@ -100,7 +100,7 @@ func Load(path string) (*Config, error) {
 		cfg.IPC.SocketPath = "/var/run/appcenter-agent/ipc.sock"
 	}
 	if cfg.RemoteSupport.ApprovalTimeoutSec <= 0 {
-		cfg.RemoteSupport.ApprovalTimeoutSec = 120
+		cfg.RemoteSupport.ApprovalTimeoutSec = 30
 	}
 	if cfg.RemoteSupport.Display == "" {
 		cfg.RemoteSupport.Display = ":0"

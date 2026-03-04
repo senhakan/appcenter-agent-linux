@@ -2342,3 +2342,46 @@ Not:
   - `status: online`
   - `os_user: ubuntu`
   - `cpu_model: Intel(R) Xeon(R) Silver 4210 CPU @ 2.20GHz`
+
+## 2026-03-04 - Remote Support Timeout UX + 30s Alignment (Server + Linux Agent)
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Agent UUID:
+  - `79001ca1-70cb-4734-8f35-233bb38aec9a`
+- Hedef:
+  - Server ve Linux agent tarafinda onay timeout suresi `30sn` olarak hizalansin.
+  - Timeout durumunda admin viewer tarafinda net modal uyarisi gosterilsin ve sayfa kapansin.
+
+### Uygulanan degisiklikler
+
+- Server:
+  - `REMOTE_SUPPORT_APPROVAL_TIMEOUT_SEC=30` (canli `.env`).
+  - Timeout state gecisini scheduler turunu beklemeden session fetch akisinda da isletecek ek guard eklendi.
+  - Timeout UX, `alert` yerine rejected akisiyla ayni modal desenine cevrildi.
+- Linux agent:
+  - Config default `approval_timeout_sec=30`.
+  - Zenity prompt fallback timeout default `30` yapildi.
+  - Test host config (`/tmp/ac-live/config.yaml`) `approval_timeout_sec: 30` olarak guncellendi.
+
+### Canli dogrulama
+
+- Session sonuc ornekleri (server DB):
+  - `id=240` -> `status=rejected`, `ended_by=user`
+  - `id=241` -> `status=timeout`, `ended_by=timeout`
+  - `id=242` -> `status=timeout`, `ended_by=timeout`
+  - `id=243` -> `status=timeout`, `ended_by=timeout`
+- Linux agent log:
+  - `remote support approval prompt closed without decision`
+  - `remote support session timed out waiting approval`
+- Server tarafi:
+  - Timeout oturumlari `pending_approval` durumundan `timeout` olarak sonlaniyor.
+  - noVNC session ekraninda timeout modal goruntuleniyor ve `Tamam` ile sayfa kapatma akisi calisiyor.
+
+### Sonuc
+
+- Onay verilmediginde Linux agent ve server tarafinda timeout suresi `30sn` hedefine cekildi.
+- Timeout/reject akislari ayrik ve tutarli:
+  - reject -> `Baglanti Istegi Kabul Edilmedi` modal
+  - timeout -> `Baglanti Istegi Zaman Asimina Ugradi` modal
