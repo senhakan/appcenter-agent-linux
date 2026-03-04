@@ -2249,3 +2249,25 @@ Not:
   - `[deploy] rolling back to backup: /tmp/ac-live/appcenter-agent-linux.20260304_073133`
   - `[deploy] rollback after failed smoke: done`
   - `auto_rollback_verified`
+
+## 2026-03-04 - Specific Backup Rollback Validation
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Senaryo:
+  - En yeni backup yolu secildi:
+    - `target=/tmp/ac-live/appcenter-agent-linux.20260304_073133`
+  - Komut:
+    - `ROLLBACK_TO=$target ./scripts/rollback_last.sh`
+
+### Result
+
+- Belirli backup dosyasina rollback: OK
+- Rollback smoke: OK
+
+### Evidence
+
+- Output:
+  - `[rollback] restoring backup: /tmp/ac-live/appcenter-agent-linux.20260304_073133`
+  - `[rollback] OK`

@@ -95,3 +95,9 @@ Not:
 ```bash
 AUTO_ROLLBACK_ON_FAIL=0 ./scripts/deploy_with_backup.sh
 ```
+
+## Specific Backup Rollback
+Belirli bir yedek dosyasina donmek icin:
+```bash
+ROLLBACK_TO=/tmp/ac-live/appcenter-agent-linux.<timestamp> ./scripts/rollback_last.sh
+```

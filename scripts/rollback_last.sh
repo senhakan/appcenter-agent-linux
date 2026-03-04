@@ -8,6 +8,7 @@ REMOTE_BIN="${AGENT_REMOTE_BIN:-/tmp/ac-live/appcenter-agent-linux}"
 REMOTE_CONFIG="${AGENT_REMOTE_CONFIG:-/tmp/ac-live/config.yaml}"
 REMOTE_LOG="${AGENT_REMOTE_LOG:-/tmp/ac-live/run_rollback_last.log}"
 RUN_SMOKE="${RUN_SMOKE:-1}"
+ROLLBACK_TO="${ROLLBACK_TO:-}"
 
 need_cmd() {
   command -v "$1" >/dev/null 2>&1 || { echo "missing command: $1" >&2; exit 1; }
@@ -16,7 +17,11 @@ need_cmd() {
 need_cmd sshpass
 need_cmd ssh
 
-REMOTE_BACKUP="$(sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no "${USER}@${HOST}" "if [ -f \"${REMOTE_BIN}.last_backup\" ]; then cat \"${REMOTE_BIN}.last_backup\"; else ls -1t \"${REMOTE_BIN}\".20* 2>/dev/null | head -n1; fi")"
+if [[ -n "$ROLLBACK_TO" ]]; then
+  REMOTE_BACKUP="$ROLLBACK_TO"
+else
+  REMOTE_BACKUP="$(sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no "${USER}@${HOST}" "if [ -f \"${REMOTE_BIN}.last_backup\" ]; then cat \"${REMOTE_BIN}.last_backup\"; else ls -1t \"${REMOTE_BIN}\".20* 2>/dev/null | head -n1; fi")"
+fi
 if [[ -z "${REMOTE_BACKUP:-}" ]]; then
   echo "[rollback] no backup found" >&2
   exit 1

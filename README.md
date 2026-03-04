@@ -59,3 +59,5 @@ Bu dizin, AppCenter Linux agent gelistirme ana proje dizinidir.
   - `./scripts/rollback_last.sh`
 - Deploy script auto-rollback:
   - `AUTO_ROLLBACK_ON_FAIL=1 ./scripts/deploy_with_backup.sh` (varsayilan)
+- Belirli backup dosyasina rollback:
+  - `ROLLBACK_TO=/tmp/ac-live/appcenter-agent-linux.<timestamp> ./scripts/rollback_last.sh`
