@@ -2171,3 +2171,28 @@ Not:
 - Regression output:
   - `[regression] 4xx non-retry OK`
   - `[regression] OK`
+
+## 2026-03-04 - Automation Stabilization Re-Run (Smoke + Regression)
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Calistirilan komutlar:
+  - `./scripts/live_smoke.sh`
+  - `./scripts/live_regression_remote_support.sh`
+
+### Result
+
+- Smoke: OK
+- Regression: OK
+- Script stabilizasyonlari dogrulandi:
+  - remote binary update: `.new -> mv` atomik gecis
+  - IPC regression check: `nc -U` tabanli sabit akıs
+
+### Evidence
+
+- Smoke output:
+  - `[smoke] OK`
+- Regression output:
+  - `[regression] 4xx non-retry OK`
+  - `[regression] OK`

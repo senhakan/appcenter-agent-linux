@@ -3,6 +3,15 @@
 ## Scope
 Bu runbook, Linux agent binary deploy, smoke validation ve rollback adimlarini standartlastirir.
 
+## Chat Komut Protokolu
+- `+2` komutu: "Plana gore islemlere onaysiz devam et" anlamina gelir.
+- Bu komutla birlikte is akisi durdurulmadan su zincir takip edilir:
+  - kod degisikligi
+  - test
+  - canli dogrulama
+  - dokumantasyon guncelleme
+  - commit/push
+
 ## Ortam
 - Test host: `10.6.60.88`
 - SSH user: `ubuntu`

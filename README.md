@@ -44,3 +44,12 @@ Bu dizin, AppCenter Linux agent gelistirme ana proje dizinidir.
   - `./scripts/live_regression_remote_support.sh`
 - Operasyon runbook:
   - `docs/DEPLOY_ROLLBACK_RUNBOOK.md`
+
+## Calisma Komutu Protokolu
+
+- `+2` komutu: "Plana gore islemlere onaysiz devam et" anlamina gelir.
+- Bu komut alindiginda ajan:
+  - plan sirasinda ilerler,
+  - uygun iyilestirmeleri uygular,
+  - testleri kosar,
+  - sonucu raporlar.
