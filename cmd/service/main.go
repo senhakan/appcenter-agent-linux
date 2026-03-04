@@ -606,6 +606,8 @@ func main() {
 		hb, hbErr := client.Heartbeat(ctx, st.UUID, st.SecretKey, api.HeartbeatRequest{
 			Hostname:         info.Hostname,
 			IPAddress:        info.IPAddress,
+			FullIP:           info.IPAddresses,
+			UptimeSec:        info.UptimeSec,
 			OSUser:           system.CurrentOSUser(),
 			OSVersion:        info.OSVersion,
 			CPUModel:         info.CPUModel,

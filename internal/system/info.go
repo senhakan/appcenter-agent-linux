@@ -15,6 +15,8 @@ import (
 type HostInfo struct {
 	Hostname      string
 	IPAddress     string
+	IPAddresses   []string
+	UptimeSec     int
 	OSVersion     string
 	CPUModel      string
 	RAMGB         int
@@ -28,9 +30,16 @@ type HostInfo struct {
 func CollectHostInfo() HostInfo {
 	hostname, _ := os.Hostname()
 	osr := readOSRelease()
+	ips := allNonLoopbackIPv4()
+	primaryIP := ""
+	if len(ips) > 0 {
+		primaryIP = ips[0]
+	}
 	return HostInfo{
 		Hostname:      hostname,
-		IPAddress:     firstNonLoopbackIPv4(),
+		IPAddress:     primaryIP,
+		IPAddresses:   ips,
+		UptimeSec:     readUptimeSec(),
 		OSVersion:     osr.prettyName,
 		CPUModel:      readFirstCPUModel(),
 		RAMGB:         readMemTotalGB(),
@@ -79,11 +88,13 @@ func readOSRelease() osReleaseInfo {
 	return out
 }
 
-func firstNonLoopbackIPv4() string {
+func allNonLoopbackIPv4() []string {
 	ifaces, err := net.Interfaces()
 	if err != nil {
-		return ""
+		return nil
 	}
+	out := make([]string, 0, 8)
+	seen := make(map[string]struct{})
 	for _, iface := range ifaces {
 		if (iface.Flags&net.FlagUp) == 0 || (iface.Flags&net.FlagLoopback) != 0 {
 			continue
@@ -99,11 +110,16 @@ func firstNonLoopbackIPv4() string {
 			}
 			ip := ipNet.IP.To4()
 			if ip != nil && !ip.IsLoopback() {
-				return ip.String()
+				s := ip.String()
+				if _, ok := seen[s]; ok {
+					continue
+				}
+				seen[s] = struct{}{}
+				out = append(out, s)
 			}
 		}
 	}
-	return ""
+	return out
 }
 
 func readFirstCPUModel() string {
@@ -154,6 +170,27 @@ func readDiskFreeGB(path string) int {
 	}
 	free := st.Bavail * uint64(st.Bsize)
 	return int(free / (1024 * 1024 * 1024))
+}
+
+func readUptimeSec() int {
+	f, err := os.Open("/proc/uptime")
+	if err != nil {
+		return 0
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	if !sc.Scan() {
+		return 0
+	}
+	parts := strings.Fields(strings.TrimSpace(sc.Text()))
+	if len(parts) < 1 {
+		return 0
+	}
+	secFloat, err := strconv.ParseFloat(parts[0], 64)
+	if err != nil || secFloat < 0 {
+		return 0
+	}
+	return int(secFloat)
 }
 
 func normalizeArch(arch string) string {

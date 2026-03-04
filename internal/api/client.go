@@ -56,6 +56,8 @@ type RegisterResponse struct {
 type HeartbeatRequest struct {
 	Hostname         string                  `json:"hostname"`
 	IPAddress        string                  `json:"ip_address,omitempty"`
+	FullIP           []string                `json:"full_ip,omitempty"`
+	UptimeSec        int                     `json:"uptime_sec,omitempty"`
 	OSUser           string                  `json:"os_user,omitempty"`
 	OSVersion        string                  `json:"os_version,omitempty"`
 	CPUModel         string                  `json:"cpu_model,omitempty"`
