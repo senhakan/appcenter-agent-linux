@@ -87,3 +87,11 @@ sshpass -p '1234asd!!!' ssh ubuntu@10.6.60.88 "cp /tmp/ac-live/appcenter-agent-l
 Not:
 - Her deploy oncesinde remote binary timestamp ile yedeklenir.
 - Son yedek yolu `${REMOTE_BIN}.last_backup` dosyasina yazilir.
+
+## Auto Rollback Davranisi
+- `deploy_with_backup.sh` varsayilan olarak `AUTO_ROLLBACK_ON_FAIL=1` ile calisir.
+- Smoke fail olursa son olusturulan backup otomatik geri yuklenir.
+- Bu davranisi kapatmak icin:
+```bash
+AUTO_ROLLBACK_ON_FAIL=0 ./scripts/deploy_with_backup.sh
+```

@@ -9,6 +9,7 @@ REMOTE_BIN="${AGENT_REMOTE_BIN:-/tmp/ac-live/appcenter-agent-linux}"
 REMOTE_CONFIG="${AGENT_REMOTE_CONFIG:-/tmp/ac-live/config.yaml}"
 REMOTE_LOG="${AGENT_REMOTE_LOG:-/tmp/ac-live/run_deploy_with_backup.log}"
 RUN_SMOKE="${RUN_SMOKE:-1}"
+AUTO_ROLLBACK_ON_FAIL="${AUTO_ROLLBACK_ON_FAIL:-1}"
 
 need_cmd() {
   command -v "$1" >/dev/null 2>&1 || { echo "missing command: $1" >&2; exit 1; }
@@ -46,8 +47,12 @@ echo "[deploy] deployed sha=${REMOTE_SHA}"
 
 echo "[deploy] backup pointer: ${REMOTE_BIN}.last_backup"
 
-if [[ "$RUN_SMOKE" == "1" ]]; then
-  echo "[deploy] running remote quick smoke"
+rollback_to_backup() {
+  echo "[deploy] rolling back to backup: ${REMOTE_BACKUP}"
+  sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no "${USER}@${HOST}" "cp '${REMOTE_BACKUP}' '${REMOTE_BIN}'; chmod +x '${REMOTE_BIN}'"
+}
+
+run_remote_smoke() {
   sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no "${USER}@${HOST}" "bash -s" <<EOS
 set -euo pipefail
 rm -f "${REMOTE_LOG}"
@@ -66,6 +71,18 @@ fi
 echo '[deploy] smoke summary:'
 grep -E 'linux agent runtime:|register ok|register failed|ipc server listening' "${REMOTE_LOG}" | tail -n 20 || true
 EOS
+}
+
+if [[ "$RUN_SMOKE" == "1" ]]; then
+  echo "[deploy] running remote quick smoke"
+  if ! run_remote_smoke; then
+    echo "[deploy] smoke failed"
+    if [[ "$AUTO_ROLLBACK_ON_FAIL" == "1" ]]; then
+      rollback_to_backup
+      echo "[deploy] rollback after failed smoke: done"
+    fi
+    exit 1
+  fi
 fi
 
 echo "[deploy] OK"

@@ -2224,3 +2224,28 @@ Not:
 - Rollback output:
   - `[rollback] restoring backup: /tmp/ac-live/appcenter-agent-linux.20260304_072918`
   - `[rollback] OK`
+
+## 2026-03-04 - Deploy Script Auto-Rollback Validation
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Calistirilan senaryolar:
+  - Normal deploy smoke: `./scripts/deploy_with_backup.sh`
+  - Kasti fail (gecersiz config): `AGENT_REMOTE_CONFIG=/tmp/ac-live/does_not_exist.yaml ./scripts/deploy_with_backup.sh`
+
+### Result
+
+- Normal deploy smoke: OK
+- Fail senaryosunda auto-rollback: OK
+  - Script `rc=1` ile cikti.
+  - `rolling back to backup` adimi calisti.
+  - Son remote binary SHA, backup SHA ile esitlendi (`auto_rollback_verified`).
+
+### Evidence
+
+- Output:
+  - `[deploy] smoke failed`
+  - `[deploy] rolling back to backup: /tmp/ac-live/appcenter-agent-linux.20260304_073133`
+  - `[deploy] rollback after failed smoke: done`
+  - `auto_rollback_verified`
