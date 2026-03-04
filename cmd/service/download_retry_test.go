@@ -92,11 +92,11 @@ func TestTaskDeduperRetryCooldownAndBurstProtection(t *testing.T) {
 func TestTaskDeduperSeedIgnoresStaleEntries(t *testing.T) {
 	t.Parallel()
 
-	d := newTaskDeduper(100 * time.Millisecond)
+	d := newTaskDeduper(2 * time.Second)
 	now := time.Now()
 	d.Seed([]state.ProcessedTask{
 		{TaskID: 1, ExecutedAtUnix: now.Unix()},
-		{TaskID: 2, ExecutedAtUnix: now.Add(-2 * time.Second).Unix()},
+		{TaskID: 2, ExecutedAtUnix: now.Add(-5 * time.Second).Unix()},
 	})
 	if d.TryStart(1) {
 		t.Fatalf("fresh seeded task must be deduped")

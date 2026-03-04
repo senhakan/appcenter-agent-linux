@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"runtime"
 	"strconv"
 	"strings"
@@ -167,9 +168,43 @@ func normalizeArch(arch string) string {
 }
 
 func CurrentOSUser() string {
+	if u := currentLoggedInUser(); u != "" {
+		return u
+	}
 	v := os.Getenv("USER")
 	if v != "" {
 		return v
 	}
 	return fmt.Sprintf("uid:%d", os.Getuid())
+}
+
+func currentLoggedInUser() string {
+	out, err := exec.Command("who").Output()
+	if err != nil {
+		return ""
+	}
+	return parseWhoOutput(string(out))
+}
+
+func parseWhoOutput(out string) string {
+	lines := strings.Split(out, "\n")
+	for _, ln := range lines {
+		ln = strings.TrimSpace(ln)
+		if ln == "" {
+			continue
+		}
+		fields := strings.Fields(ln)
+		if len(fields) == 0 {
+			continue
+		}
+		user := strings.TrimSpace(fields[0])
+		if user == "" {
+			continue
+		}
+		if strings.EqualFold(user, "reboot") {
+			continue
+		}
+		return user
+	}
+	return ""
 }

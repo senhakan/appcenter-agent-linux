@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -25,6 +26,7 @@ func TestServiceBinaryWithMockAPIAndIPC(t *testing.T) {
 
 	var registerCount atomic.Int32
 	var heartbeatCount atomic.Int32
+	var lastHeartbeat atomic.Value
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
@@ -37,6 +39,10 @@ func TestServiceBinaryWithMockAPIAndIPC(t *testing.T) {
 			})
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/agent/heartbeat":
 			heartbeatCount.Add(1)
+			body, _ := io.ReadAll(r.Body)
+			var hb map[string]any
+			_ = json.Unmarshal(body, &hb)
+			lastHeartbeat.Store(hb)
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"status": "ok",
 				"config": map[string]any{
@@ -142,6 +148,19 @@ remote_support:
 	waitDeadline := time.Now().Add(4 * time.Second)
 	for time.Now().Before(waitDeadline) {
 		if registerCount.Load() > 0 && heartbeatCount.Load() > 0 {
+			v := lastHeartbeat.Load()
+			hb, ok := v.(map[string]any)
+			if !ok {
+				t.Fatalf("heartbeat payload missing")
+			}
+			assertHeartbeatField(t, hb, "os_user")
+			assertHeartbeatField(t, hb, "os_version")
+			assertHeartbeatField(t, hb, "cpu_model")
+			assertHeartbeatField(t, hb, "ram_gb")
+			assertHeartbeatField(t, hb, "disk_free_gb")
+			assertHeartbeatField(t, hb, "arch")
+			assertHeartbeatField(t, hb, "distro")
+			assertHeartbeatField(t, hb, "distro_version")
 			return
 		}
 		time.Sleep(100 * time.Millisecond)
@@ -178,4 +197,26 @@ func mustCallIPC(t *testing.T, socketPath string, payload map[string]any) ipcTes
 		t.Fatalf("decode ipc response: %v body=%s", err, string(line))
 	}
 	return out
+}
+
+func assertHeartbeatField(t *testing.T, hb map[string]any, key string) {
+	t.Helper()
+	v, ok := hb[key]
+	if !ok {
+		t.Fatalf("heartbeat field missing: %s", key)
+	}
+	switch x := v.(type) {
+	case string:
+		if strings.TrimSpace(x) == "" {
+			t.Fatalf("heartbeat field empty: %s", key)
+		}
+	case float64:
+		if x <= 0 {
+			t.Fatalf("heartbeat numeric field not positive: %s=%v", key, x)
+		}
+	default:
+		if v == nil {
+			t.Fatalf("heartbeat field nil: %s", key)
+		}
+	}
 }

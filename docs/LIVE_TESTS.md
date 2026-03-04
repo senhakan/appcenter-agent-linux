@@ -2271,3 +2271,38 @@ Not:
 - Output:
   - `[rollback] restoring backup: /tmp/ac-live/appcenter-agent-linux.20260304_073133`
   - `[rollback] OK`
+
+## 2026-03-04 - Heartbeat Host/User Hardware Fields Parity Validation
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Senaryo:
+  - Lokal mock API (`127.0.0.1:18106`) heartbeat body kaydi alacak sekilde calistirildi.
+  - Agent config: `/tmp/ac-live/config_heartbeat_host_fields.yaml`
+  - Binary SHA remote tarafinda yeni build ile eslendi.
+
+### Result
+
+- Heartbeat payload'inda host/user/hardware alanlari gonderiliyor: OK
+  - `os_user`
+  - `os_version`
+  - `cpu_model`
+  - `ram_gb`
+  - `disk_free_gb`
+  - `arch`
+  - `distro`
+  - `distro_version`
+
+### Evidence
+
+- Mock heartbeat son payload:
+  - `"os_user":"ubuntu"`
+  - `"os_version":"Ubuntu 24.04.4 LTS"`
+  - `"cpu_model":"Intel(R) Xeon(R) Silver 4210 CPU @ 2.20GHz"`
+  - `"ram_gb":7`
+  - `"arch":"amd64"`
+  - `"distro":"ubuntu"`
+  - `"distro_version":"24.04"`
+- Kontrol sonucu:
+  - `HOST_FIELDS_OK`

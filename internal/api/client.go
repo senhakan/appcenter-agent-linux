@@ -57,6 +57,12 @@ type HeartbeatRequest struct {
 	Hostname      string                  `json:"hostname"`
 	IPAddress     string                  `json:"ip_address,omitempty"`
 	OSUser        string                  `json:"os_user,omitempty"`
+	OSVersion     string                  `json:"os_version,omitempty"`
+	CPUModel      string                  `json:"cpu_model,omitempty"`
+	RAMGB         int                     `json:"ram_gb,omitempty"`
+	Arch          string                  `json:"arch,omitempty"`
+	Distro        string                  `json:"distro,omitempty"`
+	DistroVersion string                  `json:"distro_version,omitempty"`
 	AgentVersion  string                  `json:"agent_version,omitempty"`
 	DiskFreeGB    int                     `json:"disk_free_gb,omitempty"`
 	CurrentStatus string                  `json:"current_status,omitempty"`
