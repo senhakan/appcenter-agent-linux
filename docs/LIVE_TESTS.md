@@ -1478,6 +1478,36 @@ Not:
   - `remote_support_session.state="ended"`
   - metadata alanlari yok (beklenen)
 
+## 2026-03-04 - Remote Support Approve Guard (Unregistered Agent)
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test setup:
+  - Yeni build `rsync` ile test hosta atildi:
+    - local: `agent_linux/build/service`
+    - remote: `/tmp/ac-live/appcenter-agent-linux`
+  - Agent, register olamayacagi bir server URL ile calistirildi:
+    - `server.url=http://127.0.0.1:18123` (dinleyen servis yok)
+  - IPC akisi:
+    - `remote_support_session_request(session_id=9010)`
+    - `remote_support_approve(monitor_count=1)`
+    - `remote_support_status`
+
+### Result
+
+- Unregistered durumda approve guard: OK
+  - `remote_support_approve` action artik hata donuyor: `agent not registered yet`
+  - Session `active` olmuyor; `error` state'e geciyor.
+
+### Evidence
+
+- IPC outputs:
+  - `APPROVE {"status":"error","error":"agent not registered yet",...}`
+  - `STATUS ... "session":{"state":"error",...,"last_error":"agent not registered yet"}`
+- Agent runtime log (`/tmp/ac-live/run_remote_support_unregistered.log`):
+  - `register failed (will retry in heartbeat loop): ... connect: connection refused`
+
 ## 2026-03-03 - Remote Support Env IPC Live Validation
 
 - Test host:

@@ -113,8 +113,11 @@ func main() {
 		return lastErr
 	}
 	sendRemoteApprove := func(sessionID int, approved bool, monitorCount int) (*api.RemoteApproveResponse, error) {
-		if sessionID <= 0 || strings.TrimSpace(st.SecretKey) == "" {
+		if sessionID <= 0 {
 			return nil, nil
+		}
+		if strings.TrimSpace(st.SecretKey) == "" {
+			return nil, fmt.Errorf("agent not registered yet")
 		}
 		var out *api.RemoteApproveResponse
 		err := callRemoteWithRetry("approve", func(callCtx context.Context) error {
@@ -131,16 +134,22 @@ func main() {
 		return out, nil
 	}
 	sendRemoteReady := func(sessionID int, localVNCPort int) error {
-		if sessionID <= 0 || strings.TrimSpace(st.SecretKey) == "" {
+		if sessionID <= 0 {
 			return nil
+		}
+		if strings.TrimSpace(st.SecretKey) == "" {
+			return fmt.Errorf("agent not registered yet")
 		}
 		return callRemoteWithRetry("ready", func(callCtx context.Context) error {
 			return client.RemoteReady(callCtx, st.UUID, st.SecretKey, sessionID, localVNCPort)
 		})
 	}
 	sendRemoteEnded := func(sessionID int, reason string) error {
-		if sessionID <= 0 || strings.TrimSpace(st.SecretKey) == "" {
+		if sessionID <= 0 {
 			return nil
+		}
+		if strings.TrimSpace(st.SecretKey) == "" {
+			return fmt.Errorf("agent not registered yet")
 		}
 		return callRemoteWithRetry("ended", func(callCtx context.Context) error {
 			return client.RemoteEnded(callCtx, st.UUID, st.SecretKey, sessionID, "agent", reason)
