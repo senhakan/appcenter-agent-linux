@@ -161,6 +161,21 @@ remote_support:
 			assertHeartbeatField(t, hb, "arch")
 			assertHeartbeatField(t, hb, "distro")
 			assertHeartbeatField(t, hb, "distro_version")
+			assertHeartbeatField(t, hb, "system_profile")
+			assertHeartbeatField(t, hb, "logged_in_sessions")
+			sp, ok := hb["system_profile"].(map[string]any)
+			if !ok {
+				t.Fatalf("system_profile type invalid: %T", hb["system_profile"])
+			}
+			sess, ok := hb["logged_in_sessions"].([]any)
+			if !ok || len(sess) == 0 {
+				t.Fatalf("logged_in_sessions missing/empty: %T %v", hb["logged_in_sessions"], hb["logged_in_sessions"])
+			}
+			assertProfileField(t, sp, "os_full_name")
+			assertProfileField(t, sp, "architecture")
+			assertProfileField(t, sp, "cpu_model")
+			assertProfileField(t, sp, "total_memory_gb")
+			assertProfileField(t, sp, "virtualization")
 			return
 		}
 		time.Sleep(100 * time.Millisecond)
@@ -218,5 +233,16 @@ func assertHeartbeatField(t *testing.T, hb map[string]any, key string) {
 		if v == nil {
 			t.Fatalf("heartbeat field nil: %s", key)
 		}
+	}
+}
+
+func assertProfileField(t *testing.T, sp map[string]any, key string) {
+	t.Helper()
+	v, ok := sp[key]
+	if !ok {
+		t.Fatalf("system_profile field missing: %s", key)
+	}
+	if v == nil {
+		t.Fatalf("system_profile field nil: %s", key)
 	}
 }

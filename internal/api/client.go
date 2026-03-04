@@ -54,23 +54,60 @@ type RegisterResponse struct {
 }
 
 type HeartbeatRequest struct {
-	Hostname      string                  `json:"hostname"`
-	IPAddress     string                  `json:"ip_address,omitempty"`
-	OSUser        string                  `json:"os_user,omitempty"`
-	OSVersion     string                  `json:"os_version,omitempty"`
-	CPUModel      string                  `json:"cpu_model,omitempty"`
-	RAMGB         int                     `json:"ram_gb,omitempty"`
-	Arch          string                  `json:"arch,omitempty"`
-	Distro        string                  `json:"distro,omitempty"`
-	DistroVersion string                  `json:"distro_version,omitempty"`
-	AgentVersion  string                  `json:"agent_version,omitempty"`
-	DiskFreeGB    int                     `json:"disk_free_gb,omitempty"`
-	CurrentStatus string                  `json:"current_status,omitempty"`
-	AppsChanged   bool                    `json:"apps_changed"`
-	InstalledApps []any                   `json:"installed_apps"`
-	InventoryHash string                  `json:"inventory_hash,omitempty"`
-	Platform      string                  `json:"platform,omitempty"`
-	RemoteSupport *RemoteSupportHeartbeat `json:"remote_support,omitempty"`
+	Hostname         string                  `json:"hostname"`
+	IPAddress        string                  `json:"ip_address,omitempty"`
+	OSUser           string                  `json:"os_user,omitempty"`
+	OSVersion        string                  `json:"os_version,omitempty"`
+	CPUModel         string                  `json:"cpu_model,omitempty"`
+	RAMGB            int                     `json:"ram_gb,omitempty"`
+	Arch             string                  `json:"arch,omitempty"`
+	Distro           string                  `json:"distro,omitempty"`
+	DistroVersion    string                  `json:"distro_version,omitempty"`
+	AgentVersion     string                  `json:"agent_version,omitempty"`
+	DiskFreeGB       int                     `json:"disk_free_gb,omitempty"`
+	CurrentStatus    string                  `json:"current_status,omitempty"`
+	AppsChanged      bool                    `json:"apps_changed"`
+	InstalledApps    []any                   `json:"installed_apps"`
+	InventoryHash    string                  `json:"inventory_hash,omitempty"`
+	LoggedInSessions []LoggedInSession       `json:"logged_in_sessions,omitempty"`
+	Platform         string                  `json:"platform,omitempty"`
+	SystemProfile    *SystemProfile          `json:"system_profile,omitempty"`
+	RemoteSupport    *RemoteSupportHeartbeat `json:"remote_support,omitempty"`
+}
+
+type LoggedInSession struct {
+	Username    string `json:"username"`
+	SessionType string `json:"session_type"`
+	LogonID     string `json:"logon_id,omitempty"`
+}
+
+type SystemDisk struct {
+	Index   int    `json:"index"`
+	SizeGB  int    `json:"size_gb,omitempty"`
+	Model   string `json:"model,omitempty"`
+	BusType string `json:"bus_type,omitempty"`
+}
+
+type VirtualizationInfo struct {
+	IsVirtual bool   `json:"is_virtual"`
+	Vendor    string `json:"vendor,omitempty"`
+	Model     string `json:"model,omitempty"`
+}
+
+type SystemProfile struct {
+	OSFullName       string              `json:"os_full_name,omitempty"`
+	OSVersion        string              `json:"os_version,omitempty"`
+	BuildNumber      string              `json:"build_number,omitempty"`
+	Architecture     string              `json:"architecture,omitempty"`
+	Manufacturer     string              `json:"manufacturer,omitempty"`
+	Model            string              `json:"model,omitempty"`
+	CPUModel         string              `json:"cpu_model,omitempty"`
+	CPUCoresPhysical int                 `json:"cpu_cores_physical,omitempty"`
+	CPUCoresLogical  int                 `json:"cpu_cores_logical,omitempty"`
+	TotalMemoryGB    int                 `json:"total_memory_gb,omitempty"`
+	DiskCount        int                 `json:"disk_count,omitempty"`
+	Disks            []SystemDisk        `json:"disks,omitempty"`
+	Virtualization   *VirtualizationInfo `json:"virtualization,omitempty"`
 }
 
 type HeartbeatConfig struct {

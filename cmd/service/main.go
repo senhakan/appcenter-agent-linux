@@ -508,23 +508,66 @@ func main() {
 		}
 		rsSession := remoteSupportSession.Snapshot()
 		rsDaemon := remoteSupportManager.Snapshot()
+		profile := system.CollectSystemProfile()
+		apiDisks := make([]api.SystemDisk, 0, len(profile.Disks))
+		for _, d := range profile.Disks {
+			apiDisks = append(apiDisks, api.SystemDisk{
+				Index:   d.Index,
+				SizeGB:  d.SizeGB,
+				Model:   d.Model,
+				BusType: d.BusType,
+			})
+		}
+		var virt *api.VirtualizationInfo
+		if profile.Virtualization != nil {
+			virt = &api.VirtualizationInfo{
+				IsVirtual: profile.Virtualization.IsVirtual,
+				Vendor:    profile.Virtualization.Vendor,
+				Model:     profile.Virtualization.Model,
+			}
+		}
+		sessions := system.GetLoggedInSessions()
+		apiSessions := make([]api.LoggedInSession, 0, len(sessions))
+		for _, s := range sessions {
+			apiSessions = append(apiSessions, api.LoggedInSession{
+				Username:    s.Username,
+				SessionType: s.SessionType,
+				LogonID:     s.LogonID,
+			})
+		}
 		hb, hbErr := client.Heartbeat(ctx, st.UUID, st.SecretKey, api.HeartbeatRequest{
-			Hostname:      info.Hostname,
-			IPAddress:     info.IPAddress,
-			OSUser:        system.CurrentOSUser(),
-			OSVersion:     info.OSVersion,
-			CPUModel:      info.CPUModel,
-			RAMGB:         info.RAMGB,
-			Arch:          info.Arch,
-			Distro:        info.Distro,
-			DistroVersion: info.DistroVersion,
-			AgentVersion:  cfg.Agent.Version,
-			DiskFreeGB:    info.DiskFreeGB,
-			CurrentStatus: currentStatus,
-			AppsChanged:   false,
-			InstalledApps: []any{},
-			InventoryHash: st.InventoryHash,
-			Platform:      info.Platform,
+			Hostname:         info.Hostname,
+			IPAddress:        info.IPAddress,
+			OSUser:           system.CurrentOSUser(),
+			OSVersion:        info.OSVersion,
+			CPUModel:         info.CPUModel,
+			RAMGB:            info.RAMGB,
+			Arch:             info.Arch,
+			Distro:           info.Distro,
+			DistroVersion:    info.DistroVersion,
+			AgentVersion:     cfg.Agent.Version,
+			DiskFreeGB:       info.DiskFreeGB,
+			CurrentStatus:    currentStatus,
+			AppsChanged:      false,
+			InstalledApps:    []any{},
+			InventoryHash:    st.InventoryHash,
+			LoggedInSessions: apiSessions,
+			Platform:         info.Platform,
+			SystemProfile: &api.SystemProfile{
+				OSFullName:       profile.OSFullName,
+				OSVersion:        profile.OSVersion,
+				BuildNumber:      profile.BuildNumber,
+				Architecture:     profile.Architecture,
+				Manufacturer:     profile.Manufacturer,
+				Model:            profile.Model,
+				CPUModel:         profile.CPUModel,
+				CPUCoresPhysical: profile.CPUCoresPhysical,
+				CPUCoresLogical:  profile.CPUCoresLogical,
+				TotalMemoryGB:    profile.TotalMemoryGB,
+				DiskCount:        profile.DiskCount,
+				Disks:            apiDisks,
+				Virtualization:   virt,
+			},
 			RemoteSupport: &api.RemoteSupportHeartbeat{
 				State:                rsSession.State,
 				SessionID:            rsSession.SessionID,
