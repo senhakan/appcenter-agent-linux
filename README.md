@@ -38,6 +38,10 @@ Bu dizin, AppCenter Linux agent gelistirme ana proje dizinidir.
 
 ## Live Test Automation
 
+- Server uzerinde bootstrap bundle publish (binary + sha + bootstrap script):
+  - `sudo ./scripts/publish_bootstrap_bundle.sh`
+- Client tek-komut kurulum:
+  - `curl -fsSL http://10.6.100.170:8000/uploads/agent_linux/bootstrap.sh | sudo bash -s -- --server-url http://10.6.100.170:8000`
 - Smoke deploy + temel dogrulama:
   - `./scripts/live_smoke.sh`
 - Remote support regression (IPC code + 4xx non-retry):

@@ -2385,3 +2385,100 @@ Not:
 - Timeout/reject akislari ayrik ve tutarli:
   - reject -> `Baglanti Istegi Kabul Edilmedi` modal
   - timeout -> `Baglanti Istegi Zaman Asimina Ugradi` modal
+
+## 2026-03-04 - Single-Script Bootstrap Publish + Curl Install Validation
+
+- Hedef:
+  - Server uzerinden yayinlanan tek script ile istemcide agent kurulumunun (binary + config + service + remote support bagimliliklari) tamamlanmasi.
+
+### Hazirlanan scriptler
+
+- Server publish:
+  - `scripts/publish_bootstrap_bundle.sh`
+- Client bootstrap:
+  - `scripts/bootstrap_client.sh`
+
+### Publish
+
+- Upload hedefi:
+  - `/var/lib/appcenter/uploads/agent_linux`
+- Yayinlanan dosyalar:
+  - `bootstrap.sh`
+  - `appcenter-agent-linux`
+  - `appcenter-agent-linux.sha256`
+- Erisim URL'leri:
+  - `http://10.6.100.170:8000/uploads/agent_linux/bootstrap.sh`
+  - `http://10.6.100.170:8000/uploads/agent_linux/appcenter-agent-linux`
+  - `http://10.6.100.170:8000/uploads/agent_linux/appcenter-agent-linux.sha256`
+
+### Canli kurulum testi (curl | bash)
+
+- Test host: `10.6.60.88`
+- Komut:
+```bash
+curl -fsSL http://10.6.100.170:8000/uploads/agent_linux/bootstrap.sh | sudo bash -s -- --server-url http://10.6.100.170:8000
+```
+
+### Result
+
+- Bootstrap akisi: OK
+  - apt bagimliliklari yukseltildi/kuruldu (`x11vnc`, `zenity`, `xauth`, `x11-xserver-utils`, `dbus-x11`, vb.)
+  - binary indirildi + sha256 dogrulandi
+  - config yazildi (`remote_support.enabled=true`, `approval_timeout_sec=30`)
+  - systemd unit olusturuldu/enable edildi
+  - servis aktif: `appcenter-agent.service=active`
+  - server register: `register ok`
+
+### Evidence
+
+- Host config:
+  - `/etc/appcenter-agent/config.yaml`
+- Host service:
+  - `systemctl is-active appcenter-agent.service -> active`
+- Server DB:
+  - yeni agent UUID: `6e7d0051-a093-4d95-9f7c-c8c663c35fbd`
+  - `platform=linux`, `status=online`
+
+### Not
+
+- Yeni Pardus test hostu `10.6.60.181` icin SSH erisimi bu kosuda `connection timed out` dondu.
+- Erisim acildiginda ayni curl komutu ile birebir deploy testi tekrar edilecek.
+
+## 2026-03-04 - Pardus 25 (10.6.60.181) Single-Command Bootstrap Live Validation
+
+- Test host:
+  - IP: `10.6.60.181`
+  - User: `user`
+  - Password: `1234asd!!!`
+- OS:
+  - `Pardus GNU/Linux 25 (yirmibes)`
+
+### Calistirilan komut
+
+```bash
+curl -fsSL http://10.6.100.170:8000/uploads/agent_linux/bootstrap.sh | sudo bash -s -- --server-url http://10.6.100.170:8000
+```
+
+### Result
+
+- Tek komut bootstrap: OK
+  - bagimliliklar kuruldu (`x11vnc`, `zenity`, `xauth`, `dbus-x11`, vb.)
+  - binary indirildi + sha256 dogrulandi
+  - `/etc/appcenter-agent/config.yaml` olusturuldu
+  - `appcenter-agent.service` enable + active
+  - server register + heartbeat: OK
+- Remote support gereksinimleri: OK
+  - `x11vnc`, `zenity`, `xauth` binary'leri mevcut
+  - aktif oturum tipi `Type=x11`, `Display=:0`
+
+### Evidence
+
+- Service:
+  - `systemctl is-active appcenter-agent.service -> active`
+- Config:
+  - `remote_support.enabled=true`
+  - `remote_support.approval_timeout_sec=30`
+  - `remote_support.port=20010`
+- Server DB yeni agent:
+  - UUID: `d85705fd-d8ee-4654-9879-d982141e558c`
+  - `hostname=pardus25xfce`, `platform=linux`, `distro=pardus`, `distro_version=25.0`, `status=online`

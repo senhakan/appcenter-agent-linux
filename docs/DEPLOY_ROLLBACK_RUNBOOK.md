@@ -75,6 +75,16 @@ sshpass -p '1234asd!!!' ssh ubuntu@10.6.60.88 "cp /tmp/ac-live/appcenter-agent-l
 
 ## Scripted Deploy / Rollback
 
+- Bootstrap bundle publish (server tarafi):
+```bash
+sudo ./scripts/publish_bootstrap_bundle.sh
+```
+
+- Client tek-script kurulum (Pardus/Ubuntu):
+```bash
+curl -fsSL http://10.6.100.170:8000/uploads/agent_linux/bootstrap.sh | sudo bash -s -- --server-url http://10.6.100.170:8000
+```
+
 - Yedekli deploy:
 ```bash
 ./scripts/deploy_with_backup.sh
