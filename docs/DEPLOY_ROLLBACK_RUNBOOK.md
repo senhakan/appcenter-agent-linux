@@ -72,3 +72,18 @@ sshpass -p '1234asd!!!' ssh ubuntu@10.6.60.88 "cp /tmp/ac-live/appcenter-agent-l
 
 ## Sonraki Islem
 - Basarili deploy sonrasi test kanitini `docs/LIVE_TESTS.md` icine tarihli bolum olarak ekle.
+
+## Scripted Deploy / Rollback
+
+- Yedekli deploy:
+```bash
+./scripts/deploy_with_backup.sh
+```
+- Son yedege rollback:
+```bash
+./scripts/rollback_last.sh
+```
+
+Not:
+- Her deploy oncesinde remote binary timestamp ile yedeklenir.
+- Son yedek yolu `${REMOTE_BIN}.last_backup` dosyasina yazilir.

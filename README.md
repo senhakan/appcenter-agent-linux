@@ -53,3 +53,7 @@ Bu dizin, AppCenter Linux agent gelistirme ana proje dizinidir.
   - uygun iyilestirmeleri uygular,
   - testleri kosar,
   - sonucu raporlar.
+- Yedekli deploy:
+  - `./scripts/deploy_with_backup.sh`
+- Son yedege rollback:
+  - `./scripts/rollback_last.sh`

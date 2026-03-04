@@ -2196,3 +2196,31 @@ Not:
 - Regression output:
   - `[regression] 4xx non-retry OK`
   - `[regression] OK`
+
+## 2026-03-04 - Scripted Deploy+Rollback Validation
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Calistirilan komutlar:
+  - `./scripts/deploy_with_backup.sh`
+  - `./scripts/rollback_last.sh`
+
+### Result
+
+- Yedekli deploy: OK
+  - Remote binary backup alindi (`/tmp/ac-live/appcenter-agent-linux.<timestamp>`)
+  - `.last_backup` pointer yazildi.
+  - Deploy smoke gecti.
+- Son yedege rollback: OK
+  - `last_backup` pointer uzerinden restore edildi.
+  - Rollback smoke gecti.
+
+### Evidence
+
+- Deploy output:
+  - `[deploy] backup pointer: /tmp/ac-live/appcenter-agent-linux.last_backup`
+  - `[deploy] OK`
+- Rollback output:
+  - `[rollback] restoring backup: /tmp/ac-live/appcenter-agent-linux.20260304_072918`
+  - `[rollback] OK`
