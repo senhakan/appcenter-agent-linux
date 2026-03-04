@@ -2146,3 +2146,28 @@ Not:
   - `session.server_vnc_password_set=true`
 - Mock heartbeat event ozeti (`/tmp/ac-live/mock_remote_support_hb_meta_events.jsonl`):
   - `HB_WITH_FIELDS {"state":"active","session_id":9303,"helper_running":true,"helper_pid":76774,"guacd_host":"10.6.100.170","guacd_reverse_port":4822,"local_vnc_port":5902,"server_vnc_password_set":true,"connection_ready":true}`
+
+## 2026-03-04 - Live Automation Scripts Validation
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Calistirilan otomasyon komutlari:
+  - `./scripts/live_smoke.sh`
+  - `./scripts/live_regression_remote_support.sh`
+
+### Result
+
+- Smoke script: OK
+  - Build + upload + SHA verify + remote runtime/ipc/register kontrolleri gecti.
+- Remote support regression script: OK
+  - IPC `code` semasi dogrulandi (`ok`, `unsupported_action`).
+  - 4xx callback non-retry dogrulandi (`approve` endpoint tek cagrida kaldi).
+
+### Evidence
+
+- Smoke output:
+  - `[smoke] OK`
+- Regression output:
+  - `[regression] 4xx non-retry OK`
+  - `[regression] OK`

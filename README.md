@@ -35,3 +35,12 @@ Bu dizin, AppCenter Linux agent gelistirme ana proje dizinidir.
 # appcenter-agent-linux
 
 - Live test kayitlari: 
+
+## Live Test Automation
+
+- Smoke deploy + temel dogrulama:
+  - `./scripts/live_smoke.sh`
+- Remote support regression (IPC code + 4xx non-retry):
+  - `./scripts/live_regression_remote_support.sh`
+- Operasyon runbook:
+  - `docs/DEPLOY_ROLLBACK_RUNBOOK.md`
