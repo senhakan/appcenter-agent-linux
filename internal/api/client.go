@@ -167,8 +167,17 @@ type RemoteApproveRequest struct {
 	MonitorCount int  `json:"monitor_count,omitempty"`
 }
 
+type RemoteApproveResponse struct {
+	Status           string `json:"status"`
+	Message          string `json:"message,omitempty"`
+	VNCPassword      string `json:"vnc_password,omitempty"`
+	GuacdHost        string `json:"guacd_host,omitempty"`
+	GuacdReversePort int    `json:"guacd_reverse_port,omitempty"`
+}
+
 type RemoteReadyRequest struct {
-	VNCReady bool `json:"vnc_ready"`
+	VNCReady     bool `json:"vnc_ready"`
+	LocalVNCPort int  `json:"local_vnc_port,omitempty"`
 }
 
 type RemoteEndedRequest struct {
@@ -217,7 +226,7 @@ func (c *Client) GetStore(ctx context.Context, agentUUID, secret string) (*Store
 	return &out, nil
 }
 
-func (c *Client) RemoteApprove(ctx context.Context, agentUUID, secret string, sessionID int, approved bool, monitorCount int) error {
+func (c *Client) RemoteApprove(ctx context.Context, agentUUID, secret string, sessionID int, approved bool, monitorCount int) (*RemoteApproveResponse, error) {
 	headers := map[string]string{
 		"X-Agent-UUID":   agentUUID,
 		"X-Agent-Secret": secret,
@@ -227,16 +236,24 @@ func (c *Client) RemoteApprove(ctx context.Context, agentUUID, secret string, se
 	if monitorCount > 0 {
 		req.MonitorCount = monitorCount
 	}
-	return c.postJSON(ctx, path, req, headers, nil)
+	var out RemoteApproveResponse
+	if err := c.postJSON(ctx, path, req, headers, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
-func (c *Client) RemoteReady(ctx context.Context, agentUUID, secret string, sessionID int) error {
+func (c *Client) RemoteReady(ctx context.Context, agentUUID, secret string, sessionID int, localVNCPort int) error {
 	headers := map[string]string{
 		"X-Agent-UUID":   agentUUID,
 		"X-Agent-Secret": secret,
 	}
 	path := fmt.Sprintf("/api/v1/agent/remote-support/%d/ready", sessionID)
-	return c.postJSON(ctx, path, RemoteReadyRequest{VNCReady: true}, headers, nil)
+	req := RemoteReadyRequest{VNCReady: true}
+	if localVNCPort > 0 {
+		req.LocalVNCPort = localVNCPort
+	}
+	return c.postJSON(ctx, path, req, headers, nil)
 }
 
 func (c *Client) RemoteEnded(ctx context.Context, agentUUID, secret string, sessionID int, endedBy, reason string) error {

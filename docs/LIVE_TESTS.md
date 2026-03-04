@@ -1405,6 +1405,42 @@ Not:
   - `linux agent install queue: capacity=32 workers=1`
   - `periodic heartbeat ok: status=ok commands=0`
 
+## 2026-03-04 - Remote Support Handshake Enrichment (Approve Response + Ready Local Port)
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test setup:
+  - Yeni build `rsync` ile test hosta atildi:
+    - local: `agent_linux/build/service`
+    - remote: `/tmp/ac-live/appcenter-agent-linux`
+  - Lokal mock API (`127.0.0.1:18094`) su endpointleri taklit edecek sekilde calistirildi:
+    - `POST /api/v1/agent/register`
+    - `POST /api/v1/agent/heartbeat`
+    - `POST /api/v1/agent/remote-support/{id}/approve` (response icinde `vnc_password`, `guacd_host`, `guacd_reverse_port`)
+    - `POST /api/v1/agent/remote-support/{id}/ready`
+  - Agent mock config ile foreground calistirildi (`/tmp/ac-live/config_remote_support_ready_port.yaml`).
+  - IPC akisi:
+    - `remote_support_session_request(session_id=9002)`
+    - `remote_support_approve(monitor_count=2)`
+    - `remote_support_end`
+
+### Result
+
+- Approve response parse + log: OK
+- Ready callback payload'indaki `local_vnc_port`: OK (`5900`)
+- Remote support temel akisi (request -> approve -> end): OK
+
+### Evidence
+
+- Mock event ozeti (`/tmp/ac-live/mock_remote_support_ready_port_events.jsonl`):
+  - `/api/v1/agent/remote-support/9002/approve {"approved":true,"monitor_count":2}`
+  - `/api/v1/agent/remote-support/9002/ready {"vnc_ready":true,"local_vnc_port":5900}`
+- Agent runtime log (`/tmp/ac-live/run_remote_support_ready_port.log`):
+  - `register ok: uuid=...`
+  - `remote support approved by server: session_id=9002 guacd_host=10.6.100.170 guacd_reverse_port=4822 vnc_password_set=true`
+  - `remote support x11vnc started: pid=... display=:0 port=5900`
+
 ## 2026-03-03 - Remote Support Env IPC Live Validation
 
 - Test host:

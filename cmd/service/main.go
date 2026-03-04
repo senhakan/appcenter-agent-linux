@@ -112,20 +112,30 @@ func main() {
 		}
 		return lastErr
 	}
-	sendRemoteApprove := func(sessionID int, approved bool, monitorCount int) error {
+	sendRemoteApprove := func(sessionID int, approved bool, monitorCount int) (*api.RemoteApproveResponse, error) {
 		if sessionID <= 0 || strings.TrimSpace(st.SecretKey) == "" {
-			return nil
+			return nil, nil
 		}
-		return callRemoteWithRetry("approve", func(callCtx context.Context) error {
-			return client.RemoteApprove(callCtx, st.UUID, st.SecretKey, sessionID, approved, monitorCount)
+		var out *api.RemoteApproveResponse
+		err := callRemoteWithRetry("approve", func(callCtx context.Context) error {
+			resp, err := client.RemoteApprove(callCtx, st.UUID, st.SecretKey, sessionID, approved, monitorCount)
+			if err != nil {
+				return err
+			}
+			out = resp
+			return nil
 		})
+		if err != nil {
+			return nil, err
+		}
+		return out, nil
 	}
-	sendRemoteReady := func(sessionID int) error {
+	sendRemoteReady := func(sessionID int, localVNCPort int) error {
 		if sessionID <= 0 || strings.TrimSpace(st.SecretKey) == "" {
 			return nil
 		}
 		return callRemoteWithRetry("ready", func(callCtx context.Context) error {
-			return client.RemoteReady(callCtx, st.UUID, st.SecretKey, sessionID)
+			return client.RemoteReady(callCtx, st.UUID, st.SecretKey, sessionID, localVNCPort)
 		})
 	}
 	sendRemoteEnded := func(sessionID int, reason string) error {
@@ -255,10 +265,20 @@ func main() {
 				if monitorCount <= 0 {
 					monitorCount = 1
 				}
-				if err = sendRemoteApprove(sst.SessionID, true, monitorCount); err != nil {
+				approveResp, err := sendRemoteApprove(sst.SessionID, true, monitorCount)
+				if err != nil {
 					remoteSupportSession.Error(err)
 					persistRemoteSupportSession()
 					return ipc.Response{Status: "error", Error: err.Error(), Data: remoteSupportSnapshot()}
+				}
+				if approveResp != nil {
+					logger.Printf(
+						"remote support approved by server: session_id=%d guacd_host=%s guacd_reverse_port=%d vnc_password_set=%t",
+						sst.SessionID,
+						strings.TrimSpace(approveResp.GuacdHost),
+						approveResp.GuacdReversePort,
+						strings.TrimSpace(approveResp.VNCPassword) != "",
+					)
 				}
 				_, err = remoteSupportManager.Start()
 				if err != nil {
@@ -266,7 +286,11 @@ func main() {
 					persistRemoteSupportSession()
 					return ipc.Response{Status: "error", Error: err.Error(), Data: remoteSupportSnapshot()}
 				}
-				if err = sendRemoteReady(sst.SessionID); err != nil {
+				localVNCPort := remoteSupportManager.Snapshot().Port
+				if localVNCPort <= 0 {
+					localVNCPort = cfg.RemoteSupport.Port
+				}
+				if err = sendRemoteReady(sst.SessionID, localVNCPort); err != nil {
 					_, _ = remoteSupportManager.Stop()
 					_ = sendRemoteEnded(sst.SessionID, "ready callback failed")
 					remoteSupportSession.Error(err)
@@ -285,7 +309,7 @@ func main() {
 				if err != nil {
 					return ipc.Response{Status: "error", Error: err.Error(), Data: remoteSupportSnapshot()}
 				}
-				if err = sendRemoteApprove(sst.SessionID, false, 0); err != nil {
+				if _, err = sendRemoteApprove(sst.SessionID, false, 0); err != nil {
 					return ipc.Response{Status: "error", Error: err.Error(), Data: remoteSupportSnapshot()}
 				}
 				persistRemoteSupportSession()
@@ -498,7 +522,7 @@ func main() {
 				deadline := cur.RequestedAtUnix + int64(cfg.RemoteSupport.ApprovalTimeoutSec)
 				if time.Now().Unix() > deadline {
 					remoteSupportSession.Reject("approval timeout")
-					if err := sendRemoteApprove(cur.SessionID, false, 0); err != nil {
+					if _, err := sendRemoteApprove(cur.SessionID, false, 0); err != nil {
 						logger.Printf("remote support timeout reject report warning: %v", err)
 					}
 					persistRemoteSupportSession()
