@@ -2306,3 +2306,39 @@ Not:
   - `"distro_version":"24.04"`
 - Kontrol sonucu:
   - `HOST_FIELDS_OK`
+
+## 2026-03-04 - Live Server-Side Visibility While Agent Running
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Ortam ayari:
+  - Agent test hostta timeout'suz foreground disi calisacak sekilde baslatildi:
+    - `/tmp/ac-live/appcenter-agent-linux -config /tmp/ac-live/config.yaml`
+  - PID dosyasi: `/tmp/ac-live/run_live_visibility.pid`
+  - Log: `/tmp/ac-live/run_live_visibility.log`
+
+- Server tarafi canli gorunum komutu:
+  - `ITERATIONS=1 ./scripts/live_server_visibility.sh`
+
+### Result
+
+- Agent calisirken server tarafinda alanlar goruldu: OK
+  - `status=online`
+  - `os_user=ubuntu`
+  - `os_version=Ubuntu 24.04.4 LTS`
+  - `cpu_model=Intel(R) Xeon(R) Silver 4210 CPU @ 2.20GHz`
+  - `ram_gb=7`
+  - `disk_free_gb=80`
+  - `arch=amd64`
+  - `distro=ubuntu`
+  - `distro_version=24.04`
+
+### Evidence
+
+- API endpoint:
+  - `GET /api/v1/agents/79001ca1-70cb-4734-8f35-233bb38aec9a` -> `200`
+- Visibility script output:
+  - `status: online`
+  - `os_user: ubuntu`
+  - `cpu_model: Intel(R) Xeon(R) Silver 4210 CPU @ 2.20GHz`
