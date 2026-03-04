@@ -2482,3 +2482,47 @@ curl -fsSL http://10.6.100.170:8000/uploads/agent_linux/bootstrap.sh | sudo bash
 - Server DB yeni agent:
   - UUID: `d85705fd-d8ee-4654-9879-d982141e558c`
   - `hostname=pardus25xfce`, `platform=linux`, `distro=pardus`, `distro_version=25.0`, `status=online`
+
+## 2026-03-04 - Linux Agent Self-Update Live Validation (2 Client)
+
+### Scope
+
+- Hedef:
+  - Linux agent icin heartbeat config uzerinden self-update akisini canli test etmek.
+  - Yeni surum paketini server'a yukleyip 2 test clientta otomatik guncelleme dogrulamak.
+- Kod degisikligi:
+  - `cmd/service/main.go`: self-update detection + download/hash verify + binary swap + restart
+  - `internal/api/client.go`: heartbeat config icin `latest_agent_version`, `agent_download_url`, `agent_hash` alanlari
+  - `internal/config/config.go`: self-update sonrasi `agent.version` config satiri guncelleme
+
+### Test ortam ve hedef versiyonlar
+
+- Baseline versiyon (manual deploy): `0.1.35-live`
+- Self-update target versiyon: `0.1.36-live`
+- Yayinlanan update dosyasi:
+  - `agent_linux_0.1.36-live_674abebc.bin`
+  - `sha256:674abebc3a895141b0a795989b9142df79b3392c092753670c5f7924322a3d07`
+  - download URL: `/api/v1/agent/update/download/agent_linux_0.1.36-live_674abebc.bin`
+
+### Test clientlar
+
+- `10.6.60.181` (`user`)
+- `10.6.60.88` (`ubuntu`)
+- Not: `10.6.60.182` bu kosuda `No route to host` oldugu icin aktif test disinda birakildi.
+
+### Canli sonuc
+
+- Iki clientta da self-update otomatik tetiklendi: OK
+- Log evidence (iki hostta da):
+  - `self-update detected: current=0.1.35-live target=0.1.36-live`
+  - `self-update applied: current=0.1.35-live target=0.1.36-live`
+  - servis restart sonrasi:
+    - `linux agent starting: version=0.1.36-live`
+- Config evidence:
+  - `/etc/appcenter-agent/config.yaml` satiri:
+    - `version: "0.1.36-live"`
+
+### Ozet
+
+- Linux agent self-update akisi canli ortamda 2/2 basarili.
+- Paket indirme + SHA256 dogrulama + binary aktivasyon + restart + config version update adimlari dogrulandi.

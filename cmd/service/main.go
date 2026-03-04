@@ -10,6 +10,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -528,6 +529,8 @@ func main() {
 	}
 	var nextInventorySync time.Time
 	inventoryInterval := 30 * time.Minute
+	nextSelfUpdateCheck := time.Now()
+	selfUpdateInterval := 60 * time.Minute
 
 	sendHeartbeat := func(reason string) {
 		info = system.CollectHostInfo()
@@ -653,8 +656,17 @@ func main() {
 		if hb.Config.InventoryScanIntervalMin > 0 {
 			inventoryInterval = time.Duration(hb.Config.InventoryScanIntervalMin) * time.Minute
 		}
+		if hb.Config.RuntimeUpdateIntervalMin > 0 {
+			selfUpdateInterval = time.Duration(hb.Config.RuntimeUpdateIntervalMin) * time.Minute
+		}
 		if hb.Config.InventorySyncRequired {
 			nextInventorySync = time.Time{}
+		}
+		if time.Now().After(nextSelfUpdateCheck) {
+			nextSelfUpdateCheck = time.Now().Add(selfUpdateInterval)
+			if maybeApplySelfUpdate(ctx, client, cfg, resolved, st.UUID, st.SecretKey, hb.Config, logger) {
+				return
+			}
 		}
 		remoteSupportAllowed := cfg.RemoteSupport.Enabled && hb.Config.RemoteSupportEnabled
 		if !remoteSupportAllowed {
@@ -794,6 +806,97 @@ func main() {
 			ticker.Reset(time.Duration(interval) * time.Second)
 		}
 	}
+}
+
+func maybeApplySelfUpdate(ctx context.Context, client *api.Client, cfg *config.Config, configPath, agentUUID, secret string, hbCfg api.HeartbeatConfig, logger *log.Logger) bool {
+	targetVersion := strings.TrimSpace(hbCfg.LatestAgentVersion)
+	currentVersion := strings.TrimSpace(cfg.Agent.Version)
+	if targetVersion == "" || currentVersion == "" || targetVersion == currentVersion {
+		return false
+	}
+
+	downloadURL := strings.TrimSpace(hbCfg.AgentDownloadURL)
+	hash := strings.TrimSpace(hbCfg.AgentHash)
+	if downloadURL == "" || hash == "" {
+		logger.Printf("self-update skipped: current=%s target=%s reason=missing download/hash", currentVersion, targetVersion)
+		return false
+	}
+
+	logger.Printf("self-update detected: current=%s target=%s", currentVersion, targetVersion)
+	fileName := fmt.Sprintf("agent_self_update_%s.bin", sanitizeVersionToken(targetVersion))
+	outPath, n, err := client.DownloadToFile(ctx, agentUUID, secret, downloadURL, cfg.Download.TempDir, fileName)
+	if err != nil {
+		logger.Printf("self-update download failed: %v", err)
+		return false
+	}
+	if n <= 0 {
+		logger.Printf("self-update download failed: empty payload")
+		_ = os.Remove(outPath)
+		return false
+	}
+	if err := utils.VerifySHA256(outPath, hash); err != nil {
+		logger.Printf("self-update hash verification failed: %v", err)
+		_ = os.Remove(outPath)
+		return false
+	}
+
+	exePath, err := os.Executable()
+	if err != nil {
+		logger.Printf("self-update failed: executable path: %v", err)
+		_ = os.Remove(outPath)
+		return false
+	}
+	if realPath, realErr := filepath.EvalSymlinks(exePath); realErr == nil && strings.TrimSpace(realPath) != "" {
+		exePath = realPath
+	}
+	if err := os.Chmod(outPath, 0o755); err != nil {
+		logger.Printf("self-update failed: chmod new binary: %v", err)
+		_ = os.Remove(outPath)
+		return false
+	}
+
+	backupPath := exePath + ".bak"
+	_ = os.Remove(backupPath)
+	if err := os.Rename(exePath, backupPath); err != nil {
+		logger.Printf("self-update failed: backup current binary: %v", err)
+		_ = os.Remove(outPath)
+		return false
+	}
+	if err := os.Rename(outPath, exePath); err != nil {
+		logger.Printf("self-update failed: activate new binary: %v", err)
+		_ = os.Rename(backupPath, exePath)
+		_ = os.Remove(outPath)
+		return false
+	}
+	_ = os.Remove(backupPath)
+
+	if err := config.UpdateAgentVersion(configPath, targetVersion); err != nil {
+		logger.Printf("self-update warning: config version update failed: %v", err)
+	}
+	cfg.Agent.Version = targetVersion
+	logger.Printf("self-update applied: current=%s target=%s bytes=%d", currentVersion, targetVersion, n)
+
+	go func() {
+		time.Sleep(2 * time.Second)
+		_ = syscall.Kill(os.Getpid(), syscall.SIGTERM)
+	}()
+	return true
+}
+
+func sanitizeVersionToken(v string) string {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return "unknown"
+	}
+	var b strings.Builder
+	for _, r := range v {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '.' || r == '-' || r == '_' {
+			b.WriteRune(r)
+		} else {
+			b.WriteByte('_')
+		}
+	}
+	return b.String()
 }
 
 func newUUIDLike() string {
