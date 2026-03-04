@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -77,5 +78,22 @@ func TestRemoteReadySendsLocalVNCPortWhenProvided(t *testing.T) {
 	}
 	if !gotBody.VNCReady || gotBody.LocalVNCPort != 5900 {
 		t.Fatalf("unexpected ready body: %+v", gotBody)
+	}
+}
+
+func TestIsRetryableErrorByHTTPStatus(t *testing.T) {
+	t.Parallel()
+
+	if IsRetryableError(nil) {
+		t.Fatalf("nil error must not be retryable")
+	}
+	if IsRetryableError(&HTTPStatusError{StatusCode: 400}) {
+		t.Fatalf("4xx must be permanent")
+	}
+	if !IsRetryableError(&HTTPStatusError{StatusCode: 500}) {
+		t.Fatalf("5xx must be retryable")
+	}
+	if !IsRetryableError(errors.New("dial tcp timeout")) {
+		t.Fatalf("non-http errors should remain retryable")
 	}
 }

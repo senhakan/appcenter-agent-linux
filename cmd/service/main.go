@@ -105,6 +105,10 @@ func main() {
 			}
 			lastErr = err
 			logger.Printf("remote support callback warning: op=%s attempt=%d err=%v", op, attempt, err)
+			if !api.IsRetryableError(err) {
+				logger.Printf("remote support callback permanent failure: op=%s attempt=%d", op, attempt)
+				break
+			}
 			if attempt == maxAttempts {
 				break
 			}
@@ -192,6 +196,24 @@ func main() {
 
 	go func() {
 		handler := func(req ipc.Request) ipc.Response {
+			okResp := func(message, code string, data any) ipc.Response {
+				if strings.TrimSpace(code) == "" {
+					code = "ok"
+				}
+				return ipc.Response{Status: "ok", Code: code, Message: message, Data: data}
+			}
+			errResp := func(message, code string, err error, data any) ipc.Response {
+				if strings.TrimSpace(code) == "" {
+					code = "internal_error"
+				}
+				out := ipc.Response{Status: "error", Code: code, Message: message, Data: data}
+				if err != nil {
+					out.Error = err.Error()
+				} else if strings.TrimSpace(message) != "" {
+					out.Error = message
+				}
+				return out
+			}
 			remoteSupportSnapshot := func() any {
 				return map[string]any{
 					"session":           remoteSupportSession.Snapshot(),
@@ -202,36 +224,32 @@ func main() {
 			}
 			switch strings.ToLower(strings.TrimSpace(req.Action)) {
 			case "ping":
-				return ipc.Response{Status: "ok", Message: "pong"}
+				return okResp("pong", "ok", nil)
 			case "store_list":
 				if st.SecretKey == "" {
-					return ipc.Response{Status: "error", Error: "agent not registered yet"}
+					return errResp("agent not registered yet", "agent_not_registered", nil, nil)
 				}
 				callCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 				defer cancel()
 				resp, err := client.GetStore(callCtx, st.UUID, st.SecretKey)
 				if err != nil {
-					return ipc.Response{Status: "error", Error: err.Error()}
+					return errResp("store list failed", "store_list_failed", err, nil)
 				}
-				return ipc.Response{
-					Status:  "ok",
-					Message: fmt.Sprintf("store apps fetched: %d", len(resp.Apps)),
-					Data:    resp.Apps,
-				}
+				return okResp(fmt.Sprintf("store apps fetched: %d", len(resp.Apps)), "store_list_ok", resp.Apps)
 			case "store_install":
 				if req.AppID <= 0 {
-					return ipc.Response{Status: "error", Error: "app_id must be positive"}
+					return errResp("app_id must be positive", "invalid_app_id", nil, nil)
 				}
 				if st.SecretKey == "" {
-					return ipc.Response{Status: "error", Error: "agent not registered yet"}
+					return errResp("agent not registered yet", "agent_not_registered", nil, nil)
 				}
 				callCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 				defer cancel()
 				resp, err := client.RequestStoreInstall(callCtx, st.UUID, st.SecretKey, req.AppID)
 				if err != nil {
-					return ipc.Response{Status: "error", Error: err.Error()}
+					return errResp("store install request failed", "store_install_failed", err, nil)
 				}
-				return ipc.Response{Status: resp.Status, Message: resp.Message}
+				return okResp(resp.Message, "store_install_requested", nil)
 			case "remote_support_env":
 				env := remotesupport.ProbeEnv()
 				status := "ok"
@@ -239,7 +257,7 @@ func main() {
 				if env.Installed {
 					msg = "x11vnc is installed"
 				}
-				return ipc.Response{Status: status, Message: msg, Data: env}
+				return okResp(msg, status, env)
 			case "remote_support_status":
 				daemon := remoteSupportManager.Snapshot()
 				session := remoteSupportSession.Snapshot()
@@ -254,21 +272,21 @@ func main() {
 					}
 					persistRemoteSupportSession()
 				}
-				return ipc.Response{Status: "ok", Message: "remote support status", Data: remoteSupportSnapshot()}
+				return okResp("remote support status", "remote_support_status", remoteSupportSnapshot())
 			case "remote_support_session_request":
 				sst, err := remoteSupportSession.Begin(req.SessionID, strings.TrimSpace(req.AdminName), strings.TrimSpace(req.Reason))
 				if err != nil {
-					return ipc.Response{Status: "error", Error: err.Error(), Data: sst}
+					return errResp("remote support session request failed", "remote_support_session_request_failed", err, sst)
 				}
 				persistRemoteSupportSession()
-				return ipc.Response{Status: "ok", Message: "remote support session pending approval", Data: remoteSupportSnapshot()}
+				return okResp("remote support session pending approval", "remote_support_session_pending", remoteSupportSnapshot())
 			case "remote_support_approve":
 				if !cfg.RemoteSupport.Enabled {
-					return ipc.Response{Status: "error", Error: "remote support is disabled by config", Data: remoteSupportSnapshot()}
+					return errResp("remote support is disabled by config", "remote_support_disabled", nil, remoteSupportSnapshot())
 				}
 				sst, err := remoteSupportSession.Approve()
 				if err != nil {
-					return ipc.Response{Status: "error", Error: err.Error(), Data: remoteSupportSnapshot()}
+					return errResp("remote support approve failed", "remote_support_approve_failed", err, remoteSupportSnapshot())
 				}
 				monitorCount := req.MonitorCount
 				if monitorCount <= 0 {
@@ -278,7 +296,7 @@ func main() {
 				if err != nil {
 					remoteSupportSession.Error(err)
 					persistRemoteSupportSession()
-					return ipc.Response{Status: "error", Error: err.Error(), Data: remoteSupportSnapshot()}
+					return errResp("remote support approve callback failed", "remote_support_approve_callback_failed", err, remoteSupportSnapshot())
 				}
 				if approveResp != nil {
 					logger.Printf(
@@ -293,7 +311,7 @@ func main() {
 				if err != nil {
 					remoteSupportSession.Error(err)
 					persistRemoteSupportSession()
-					return ipc.Response{Status: "error", Error: err.Error(), Data: remoteSupportSnapshot()}
+					return errResp("remote support daemon start failed", "remote_support_daemon_start_failed", err, remoteSupportSnapshot())
 				}
 				localVNCPort := remoteSupportManager.Snapshot().Port
 				if localVNCPort <= 0 {
@@ -304,7 +322,7 @@ func main() {
 					_ = sendRemoteEnded(sst.SessionID, "ready callback failed")
 					remoteSupportSession.Error(err)
 					persistRemoteSupportSession()
-					return ipc.Response{Status: "error", Error: err.Error(), Data: remoteSupportSnapshot()}
+					return errResp("remote support ready callback failed", "remote_support_ready_callback_failed", err, remoteSupportSnapshot())
 				}
 				guacdHost := ""
 				guacdReversePort := 0
@@ -317,7 +335,7 @@ func main() {
 				remoteSupportSession.SetConnectionInfo(guacdHost, guacdReversePort, localVNCPort, serverVNCPasswordSet)
 				remoteSupportSession.Activate()
 				persistRemoteSupportSession()
-				return ipc.Response{Status: "ok", Message: "remote support approved and started", Data: remoteSupportSnapshot()}
+				return okResp("remote support approved and started", "remote_support_approved", remoteSupportSnapshot())
 			case "remote_support_reject":
 				reason := strings.TrimSpace(req.Reason)
 				if reason == "" {
@@ -325,46 +343,46 @@ func main() {
 				}
 				sst, err := remoteSupportSession.Reject(reason)
 				if err != nil {
-					return ipc.Response{Status: "error", Error: err.Error(), Data: remoteSupportSnapshot()}
+					return errResp("remote support reject failed", "remote_support_reject_failed", err, remoteSupportSnapshot())
 				}
 				if _, err = sendRemoteApprove(sst.SessionID, false, 0); err != nil {
-					return ipc.Response{Status: "error", Error: err.Error(), Data: remoteSupportSnapshot()}
+					return errResp("remote support reject callback failed", "remote_support_reject_callback_failed", err, remoteSupportSnapshot())
 				}
 				persistRemoteSupportSession()
-				return ipc.Response{Status: "ok", Message: "remote support rejected", Data: remoteSupportSnapshot()}
+				return okResp("remote support rejected", "remote_support_rejected", remoteSupportSnapshot())
 			case "remote_support_clear":
 				remoteSupportSession.Clear()
 				persistRemoteSupportSession()
-				return ipc.Response{Status: "ok", Message: "remote support state cleared", Data: remoteSupportSnapshot()}
+				return okResp("remote support state cleared", "remote_support_cleared", remoteSupportSnapshot())
 			case "remote_support_end":
 				sst := remoteSupportSession.Snapshot()
 				_, err := remoteSupportManager.Stop()
 				if err != nil {
-					return ipc.Response{Status: "error", Error: err.Error(), Data: remoteSupportSnapshot()}
+					return errResp("remote support daemon stop failed", "remote_support_daemon_stop_failed", err, remoteSupportSnapshot())
 				}
 				remoteSupportSession.End("ended")
 				if err = sendRemoteEnded(sst.SessionID, "ended from ipc"); err != nil {
-					return ipc.Response{Status: "error", Error: err.Error(), Data: remoteSupportSnapshot()}
+					return errResp("remote support ended callback failed", "remote_support_ended_callback_failed", err, remoteSupportSnapshot())
 				}
 				persistRemoteSupportSession()
-				return ipc.Response{Status: "ok", Message: "remote support ended", Data: remoteSupportSnapshot()}
+				return okResp("remote support ended", "remote_support_ended", remoteSupportSnapshot())
 			case "remote_support_start":
 				if !cfg.RemoteSupport.Enabled {
-					return ipc.Response{Status: "error", Error: "remote support is disabled by config", Data: remoteSupportSnapshot()}
+					return errResp("remote support is disabled by config", "remote_support_disabled", nil, remoteSupportSnapshot())
 				}
 				rst, err := remoteSupportManager.Start()
 				if err != nil {
-					return ipc.Response{Status: "error", Error: err.Error(), Data: rst}
+					return errResp("remote support start failed", "remote_support_start_failed", err, rst)
 				}
-				return ipc.Response{Status: "ok", Message: "remote support started", Data: rst}
+				return okResp("remote support started", "remote_support_started", rst)
 			case "remote_support_stop":
 				rst, err := remoteSupportManager.Stop()
 				if err != nil {
-					return ipc.Response{Status: "error", Error: err.Error(), Data: rst}
+					return errResp("remote support stop failed", "remote_support_stop_failed", err, rst)
 				}
-				return ipc.Response{Status: "ok", Message: "remote support stopped", Data: rst}
+				return okResp("remote support stopped", "remote_support_stopped", rst)
 			default:
-				return ipc.Response{Status: "error", Error: "unsupported action"}
+				return errResp("unsupported action", "unsupported_action", nil, nil)
 			}
 		}
 		if err := ipc.Start(ctx, cfg.IPC.SocketPath, logger, handler); err != nil && ctx.Err() == nil {
@@ -502,10 +520,15 @@ func main() {
 			InventoryHash: st.InventoryHash,
 			Platform:      info.Platform,
 			RemoteSupport: &api.RemoteSupportHeartbeat{
-				State:         rsSession.State,
-				SessionID:     rsSession.SessionID,
-				HelperRunning: rsDaemon.Running,
-				HelperPID:     rsDaemon.PID,
+				State:                rsSession.State,
+				SessionID:            rsSession.SessionID,
+				HelperRunning:        rsDaemon.Running,
+				HelperPID:            rsDaemon.PID,
+				GuacdHost:            strings.TrimSpace(rsSession.GuacdHost),
+				GuacdReversePort:     rsSession.GuacdReversePort,
+				LocalVNCPort:         rsSession.LocalVNCPort,
+				ServerVNCPasswordSet: rsSession.ServerVNCPasswordSet,
+				ConnectionReady:      strings.TrimSpace(rsSession.State) == remotesupport.StateActive && rsDaemon.Running && rsSession.LocalVNCPort > 0,
 			},
 		})
 		if hbErr != nil {

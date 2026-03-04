@@ -26,6 +26,7 @@ type Request struct {
 
 type Response struct {
 	Status  string `json:"status"`
+	Code    string `json:"code,omitempty"`
 	Message string `json:"message,omitempty"`
 	Error   string `json:"error,omitempty"`
 	Data    any    `json:"data,omitempty"`
@@ -99,8 +100,8 @@ func bytesTrimSpace(b []byte) []byte {
 func defaultHandler(req Request) Response {
 	switch strings.ToLower(strings.TrimSpace(req.Action)) {
 	case "ping":
-		return Response{Status: "ok", Message: "pong"}
+		return Response{Status: "ok", Code: "ok", Message: "pong"}
 	default:
-		return Response{Status: "error", Error: "unsupported action"}
+		return Response{Status: "error", Code: "unsupported_action", Message: "unsupported action", Error: "unsupported action"}
 	}
 }

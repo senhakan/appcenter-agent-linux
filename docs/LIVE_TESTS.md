@@ -2079,3 +2079,70 @@ Not:
   - `linux agent runtime: ipc=/tmp/ac-live/ipc.sock remote_support_enabled=true`
   - `linux agent install queue: capacity=32 workers=1`
   - `periodic heartbeat ok: status=ok commands=0`
+
+## 2026-03-04 - Remote Callback Retry Policy (4xx Permanent / 5xx Retry)
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test setup:
+  - Lokal mock API (`127.0.0.1:18095`) `approve` endpointinde kalici `400` dondurecek sekilde ayarlandi.
+  - Agent mock config ile foreground calistirildi (`/tmp/ac-live/config_remote_support_4xx.yaml`).
+  - IPC akisi:
+    - `ping`
+    - `unknown_x` (unsupported action)
+    - `remote_support_session_request(session_id=9301)`
+    - `remote_support_approve`
+
+### Result
+
+- IPC response schema (`code` + `message` + `error`) dogrulandi: OK
+- `approve` callback icin 4xx non-retry davranisi dogrulandi: OK
+  - `approve` endpointine tek cagrida kaldi (`TESTA_APPROVE_CALLS=1`).
+
+### Evidence
+
+- IPC outputs:
+  - `{"status":"ok","code":"ok","message":"pong"}`
+  - `{"status":"error","code":"unsupported_action","message":"unsupported action","error":"unsupported action"}`
+  - `{"status":"error","code":"remote_support_approve_callback_failed",...}`
+- Mock event ozeti (`/tmp/ac-live/mock_remote_support_4xx_events.jsonl`):
+  - `TESTA_APPROVE_CALLS 1`
+
+## 2026-03-04 - Heartbeat Remote Support Metadata Propagation
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test setup:
+  - Test hosta ek arac kuruldu:
+    - `xvfb` (`apt-get install -y xvfb`)
+  - `Xvfb :99` acilarak `x11vnc` icin stabil display saglandi.
+  - Agent config:
+    - `server.url=http://127.0.0.1:18096`
+    - `remote_support.display=:99`
+    - `remote_support.port=5902`
+  - IPC akisi:
+    - `remote_support_session_request(session_id=9303)`
+    - `remote_support_approve(monitor_count=2)`
+    - `remote_support_status`
+    - `remote_support_end`
+
+### Result
+
+- Heartbeat `remote_support` payload'ina yeni metadata alanlari yansidi: OK
+  - `guacd_host`
+  - `guacd_reverse_port`
+  - `local_vnc_port`
+  - `server_vnc_password_set`
+  - `connection_ready`
+
+### Evidence
+
+- IPC output (`remote_support_status`):
+  - `session.guacd_host=10.6.100.170`
+  - `session.guacd_reverse_port=4822`
+  - `session.local_vnc_port=5902`
+  - `session.server_vnc_password_set=true`
+- Mock heartbeat event ozeti (`/tmp/ac-live/mock_remote_support_hb_meta_events.jsonl`):
+  - `HB_WITH_FIELDS {"state":"active","session_id":9303,"helper_running":true,"helper_pid":76774,"guacd_host":"10.6.100.170","guacd_reverse_port":4822,"local_vnc_port":5902,"server_vnc_password_set":true,"connection_ready":true}`

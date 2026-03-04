@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -146,10 +147,15 @@ type StoreResponse struct {
 }
 
 type RemoteSupportHeartbeat struct {
-	State         string `json:"state,omitempty"`
-	SessionID     int    `json:"session_id,omitempty"`
-	HelperRunning bool   `json:"helper_running"`
-	HelperPID     int    `json:"helper_pid,omitempty"`
+	State                string `json:"state,omitempty"`
+	SessionID            int    `json:"session_id,omitempty"`
+	HelperRunning        bool   `json:"helper_running"`
+	HelperPID            int    `json:"helper_pid,omitempty"`
+	GuacdHost            string `json:"guacd_host,omitempty"`
+	GuacdReversePort     int    `json:"guacd_reverse_port,omitempty"`
+	LocalVNCPort         int    `json:"local_vnc_port,omitempty"`
+	ServerVNCPasswordSet bool   `json:"server_vnc_password_set,omitempty"`
+	ConnectionReady      bool   `json:"connection_ready,omitempty"`
 }
 
 type RemoteSupportRequest struct {
@@ -183,6 +189,28 @@ type RemoteReadyRequest struct {
 type RemoteEndedRequest struct {
 	EndedBy string `json:"ended_by"`
 	Reason  string `json:"reason,omitempty"`
+}
+
+type HTTPStatusError struct {
+	Method     string
+	Path       string
+	StatusCode int
+	Body       string
+}
+
+func (e *HTTPStatusError) Error() string {
+	return fmt.Sprintf("%s %s failed: HTTP %d: %s", e.Method, e.Path, e.StatusCode, strings.TrimSpace(e.Body))
+}
+
+func IsRetryableError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var httpErr *HTTPStatusError
+	if errors.As(err, &httpErr) {
+		return httpErr.StatusCode >= 500
+	}
+	return true
 }
 
 func (c *Client) Register(ctx context.Context, req RegisterRequest) (*RegisterResponse, error) {
@@ -386,7 +414,12 @@ func (c *Client) postJSON(ctx context.Context, path string, body any, headers ma
 	defer resp.Body.Close()
 	resBody, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("%s %s failed: HTTP %d: %s", http.MethodPost, path, resp.StatusCode, strings.TrimSpace(string(resBody)))
+		return &HTTPStatusError{
+			Method:     http.MethodPost,
+			Path:       path,
+			StatusCode: resp.StatusCode,
+			Body:       string(resBody),
+		}
 	}
 	if out != nil {
 		if err := json.Unmarshal(resBody, out); err != nil {
@@ -411,7 +444,12 @@ func (c *Client) getJSON(ctx context.Context, path string, headers map[string]st
 	defer resp.Body.Close()
 	resBody, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("%s %s failed: HTTP %d: %s", http.MethodGet, path, resp.StatusCode, strings.TrimSpace(string(resBody)))
+		return &HTTPStatusError{
+			Method:     http.MethodGet,
+			Path:       path,
+			StatusCode: resp.StatusCode,
+			Body:       string(resBody),
+		}
 	}
 	if out != nil {
 		if err := json.Unmarshal(resBody, out); err != nil {
