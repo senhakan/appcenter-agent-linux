@@ -3,8 +3,11 @@ package remotesupport
 import (
 	"fmt"
 	"log"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -47,7 +50,7 @@ func (m *Manager) Snapshot() Status {
 	return m.status
 }
 
-func (m *Manager) Start() (Status, error) {
+func (m *Manager) Start(vncPassword string) (Status, error) {
 	m.mu.Lock()
 	if m.status.Running {
 		st := m.status
@@ -64,15 +67,26 @@ func (m *Manager) Start() (Status, error) {
 	path := m.status.X11VNCPath
 	cmd := exec.Command(
 		path,
+	)
+	args := []string{
 		"-display", display,
 		"-rfbport", strconv.Itoa(port),
 		"-forever",
 		"-shared",
-		"-nopw",
 		"-noxrecord",
 		"-noxfixes",
 		"-noxdamage",
-	)
+	}
+	if strings.TrimSpace(vncPassword) == "" {
+		args = append(args, "-nopw")
+	} else {
+		args = append(args, "-passwd", vncPassword)
+	}
+	if auth := discoverXAuthority(); auth != "" {
+		args = append(args, "-auth", auth)
+		m.logger.Printf("remote support x11vnc auth: %s", auth)
+	}
+	cmd.Args = append(cmd.Args, args...)
 	if err := cmd.Start(); err != nil {
 		m.status.LastError = err.Error()
 		st := m.status
@@ -90,6 +104,24 @@ func (m *Manager) Start() (Status, error) {
 	m.logger.Printf("remote support x11vnc started: pid=%d display=%s port=%d", st.PID, st.Display, st.Port)
 	go m.wait(cmd)
 	return st, nil
+}
+
+func discoverXAuthority() string {
+	candidates := []string{}
+	if home, err := os.UserHomeDir(); err == nil {
+		candidates = append(candidates, filepath.Join(home, ".Xauthority"))
+	}
+	uid := strconv.Itoa(os.Getuid())
+	candidates = append(candidates, filepath.Join("/run/user", uid, "gdm/Xauthority"))
+	if matches, _ := filepath.Glob(filepath.Join("/run/user", uid, ".mutter-Xwaylandauth.*")); len(matches) > 0 {
+		candidates = append(candidates, matches...)
+	}
+	for _, p := range candidates {
+		if fi, err := os.Stat(p); err == nil && fi.Mode().IsRegular() {
+			return p
+		}
+	}
+	return ""
 }
 
 func (m *Manager) wait(cmd *exec.Cmd) {

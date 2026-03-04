@@ -78,7 +78,8 @@ func main() {
 	}
 
 	client := api.NewClient(cfg.Server.URL)
-	remoteSupportManager := remotesupport.NewManager(logger, cfg.RemoteSupport.Display, cfg.RemoteSupport.Port)
+	remoteDisplay := remotesupport.ResolveDisplay(cfg.RemoteSupport.Display, logger)
+	remoteSupportManager := remotesupport.NewManager(logger, remoteDisplay, cfg.RemoteSupport.Port)
 	remoteSupportSession := remotesupport.NewSessionManager()
 	remoteSupportSession.Restore(remoteSupportSessionFromState(st.RemoteSupportSession))
 	if snap := remoteSupportSession.Snapshot(); strings.TrimSpace(snap.State) != "" && strings.TrimSpace(snap.State) != remotesupport.StateIdle {
@@ -158,6 +159,129 @@ func main() {
 		return callRemoteWithRetry("ended", func(callCtx context.Context) error {
 			return client.RemoteEnded(callCtx, st.UUID, st.SecretKey, sessionID, "agent", reason)
 		})
+	}
+	approveRemoteSession := func(monitorCount int) error {
+		if !cfg.RemoteSupport.Enabled {
+			return fmt.Errorf("remote support is disabled by config")
+		}
+		sst, err := remoteSupportSession.Approve()
+		if err != nil {
+			return err
+		}
+		if monitorCount <= 0 {
+			monitorCount = 1
+		}
+		approveResp, err := sendRemoteApprove(sst.SessionID, true, monitorCount)
+		if err != nil {
+			remoteSupportSession.Error(err)
+			persistRemoteSupportSession()
+			return err
+		}
+		if approveResp != nil {
+			logger.Printf(
+				"remote support approved by server: session_id=%d guacd_host=%s guacd_reverse_port=%d vnc_password_set=%t",
+				sst.SessionID,
+				strings.TrimSpace(approveResp.GuacdHost),
+				approveResp.GuacdReversePort,
+				strings.TrimSpace(approveResp.VNCPassword) != "",
+			)
+		}
+		vncPassword := ""
+		if approveResp != nil {
+			vncPassword = strings.TrimSpace(approveResp.VNCPassword)
+		}
+		_, err = remoteSupportManager.Start(vncPassword)
+		if err != nil {
+			remoteSupportSession.Error(err)
+			persistRemoteSupportSession()
+			return err
+		}
+		localVNCPort := remoteSupportManager.Snapshot().Port
+		if localVNCPort <= 0 {
+			localVNCPort = cfg.RemoteSupport.Port
+		}
+		if err = sendRemoteReady(sst.SessionID, localVNCPort); err != nil {
+			_, _ = remoteSupportManager.Stop()
+			_ = sendRemoteEnded(sst.SessionID, "ready callback failed")
+			remoteSupportSession.Error(err)
+			persistRemoteSupportSession()
+			return err
+		}
+		guacdHost := ""
+		guacdReversePort := 0
+		serverVNCPasswordSet := false
+		if approveResp != nil {
+			guacdHost = strings.TrimSpace(approveResp.GuacdHost)
+			guacdReversePort = approveResp.GuacdReversePort
+			serverVNCPasswordSet = strings.TrimSpace(approveResp.VNCPassword) != ""
+		}
+		remoteSupportSession.SetConnectionInfo(guacdHost, guacdReversePort, localVNCPort, serverVNCPasswordSet)
+		remoteSupportSession.Activate()
+		persistRemoteSupportSession()
+		return nil
+	}
+	rejectRemoteSession := func(reason string) error {
+		if strings.TrimSpace(reason) == "" {
+			reason = "rejected by user"
+		}
+		sst, err := remoteSupportSession.Reject(reason)
+		if err != nil {
+			return err
+		}
+		if _, err = sendRemoteApprove(sst.SessionID, false, 0); err != nil {
+			return err
+		}
+		persistRemoteSupportSession()
+		return nil
+	}
+	var approvalPromptMu sync.Mutex
+	approvalPromptRunning := make(map[int]bool)
+	startApprovalPrompt := func(sessionID int, adminName, reason string) {
+		if sessionID <= 0 {
+			return
+		}
+		approvalPromptMu.Lock()
+		if approvalPromptRunning[sessionID] {
+			approvalPromptMu.Unlock()
+			return
+		}
+		approvalPromptRunning[sessionID] = true
+		approvalPromptMu.Unlock()
+
+		go func() {
+			defer func() {
+				approvalPromptMu.Lock()
+				delete(approvalPromptRunning, sessionID)
+				approvalPromptMu.Unlock()
+			}()
+			approved, decided, promptErr := remotesupport.PromptApproval(remoteDisplay, adminName, reason, cfg.RemoteSupport.ApprovalTimeoutSec, logger)
+			if promptErr != nil {
+				logger.Printf("remote support approval prompt failed: session_id=%d err=%v", sessionID, promptErr)
+				return
+			}
+			cur := remoteSupportSession.Snapshot()
+			if cur.SessionID != sessionID || cur.State != remotesupport.StatePending {
+				logger.Printf("remote support approval prompt result ignored: session_id=%d state=%s", sessionID, cur.State)
+				return
+			}
+			if !decided {
+				logger.Printf("remote support approval prompt closed without decision: session_id=%d", sessionID)
+				return
+			}
+			if approved {
+				if err := approveRemoteSession(1); err != nil {
+					logger.Printf("remote support prompt approve failed: session_id=%d err=%v", sessionID, err)
+					return
+				}
+				logger.Printf("remote support approved from desktop prompt: session_id=%d", sessionID)
+				return
+			}
+			if err := rejectRemoteSession("rejected by user"); err != nil {
+				logger.Printf("remote support prompt reject failed: session_id=%d err=%v", sessionID, err)
+				return
+			}
+			logger.Printf("remote support rejected from desktop prompt: session_id=%d", sessionID)
+		}()
 	}
 	info := system.CollectHostInfo()
 	triggerCh := make(chan struct{}, 1)
@@ -281,74 +405,15 @@ func main() {
 				persistRemoteSupportSession()
 				return okResp("remote support session pending approval", "remote_support_session_pending", remoteSupportSnapshot())
 			case "remote_support_approve":
-				if !cfg.RemoteSupport.Enabled {
-					return errResp("remote support is disabled by config", "remote_support_disabled", nil, remoteSupportSnapshot())
-				}
-				sst, err := remoteSupportSession.Approve()
-				if err != nil {
+				monitorCount := req.MonitorCount
+				if err := approveRemoteSession(monitorCount); err != nil {
 					return errResp("remote support approve failed", "remote_support_approve_failed", err, remoteSupportSnapshot())
 				}
-				monitorCount := req.MonitorCount
-				if monitorCount <= 0 {
-					monitorCount = 1
-				}
-				approveResp, err := sendRemoteApprove(sst.SessionID, true, monitorCount)
-				if err != nil {
-					remoteSupportSession.Error(err)
-					persistRemoteSupportSession()
-					return errResp("remote support approve callback failed", "remote_support_approve_callback_failed", err, remoteSupportSnapshot())
-				}
-				if approveResp != nil {
-					logger.Printf(
-						"remote support approved by server: session_id=%d guacd_host=%s guacd_reverse_port=%d vnc_password_set=%t",
-						sst.SessionID,
-						strings.TrimSpace(approveResp.GuacdHost),
-						approveResp.GuacdReversePort,
-						strings.TrimSpace(approveResp.VNCPassword) != "",
-					)
-				}
-				_, err = remoteSupportManager.Start()
-				if err != nil {
-					remoteSupportSession.Error(err)
-					persistRemoteSupportSession()
-					return errResp("remote support daemon start failed", "remote_support_daemon_start_failed", err, remoteSupportSnapshot())
-				}
-				localVNCPort := remoteSupportManager.Snapshot().Port
-				if localVNCPort <= 0 {
-					localVNCPort = cfg.RemoteSupport.Port
-				}
-				if err = sendRemoteReady(sst.SessionID, localVNCPort); err != nil {
-					_, _ = remoteSupportManager.Stop()
-					_ = sendRemoteEnded(sst.SessionID, "ready callback failed")
-					remoteSupportSession.Error(err)
-					persistRemoteSupportSession()
-					return errResp("remote support ready callback failed", "remote_support_ready_callback_failed", err, remoteSupportSnapshot())
-				}
-				guacdHost := ""
-				guacdReversePort := 0
-				serverVNCPasswordSet := false
-				if approveResp != nil {
-					guacdHost = strings.TrimSpace(approveResp.GuacdHost)
-					guacdReversePort = approveResp.GuacdReversePort
-					serverVNCPasswordSet = strings.TrimSpace(approveResp.VNCPassword) != ""
-				}
-				remoteSupportSession.SetConnectionInfo(guacdHost, guacdReversePort, localVNCPort, serverVNCPasswordSet)
-				remoteSupportSession.Activate()
-				persistRemoteSupportSession()
 				return okResp("remote support approved and started", "remote_support_approved", remoteSupportSnapshot())
 			case "remote_support_reject":
-				reason := strings.TrimSpace(req.Reason)
-				if reason == "" {
-					reason = "rejected by user"
-				}
-				sst, err := remoteSupportSession.Reject(reason)
-				if err != nil {
+				if err := rejectRemoteSession(strings.TrimSpace(req.Reason)); err != nil {
 					return errResp("remote support reject failed", "remote_support_reject_failed", err, remoteSupportSnapshot())
 				}
-				if _, err = sendRemoteApprove(sst.SessionID, false, 0); err != nil {
-					return errResp("remote support reject callback failed", "remote_support_reject_callback_failed", err, remoteSupportSnapshot())
-				}
-				persistRemoteSupportSession()
 				return okResp("remote support rejected", "remote_support_rejected", remoteSupportSnapshot())
 			case "remote_support_clear":
 				remoteSupportSession.Clear()
@@ -370,7 +435,7 @@ func main() {
 				if !cfg.RemoteSupport.Enabled {
 					return errResp("remote support is disabled by config", "remote_support_disabled", nil, remoteSupportSnapshot())
 				}
-				rst, err := remoteSupportManager.Start()
+				rst, err := remoteSupportManager.Start("")
 				if err != nil {
 					return errResp("remote support start failed", "remote_support_start_failed", err, rst)
 				}
@@ -634,6 +699,11 @@ func main() {
 				} else {
 					persistRemoteSupportSession()
 					logger.Printf("remote support request received: session_id=%d", hb.RemoteSupportRequest.SessionID)
+					startApprovalPrompt(
+						hb.RemoteSupportRequest.SessionID,
+						strings.TrimSpace(hb.RemoteSupportRequest.AdminName),
+						strings.TrimSpace(hb.RemoteSupportRequest.Reason),
+					)
 				}
 			}
 		}

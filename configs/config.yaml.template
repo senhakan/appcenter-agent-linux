@@ -31,4 +31,4 @@ remote_support:
   enabled: false
   approval_timeout_sec: 120
   display: ":0"
-  port: 5900
+  port: 20010

@@ -106,7 +106,7 @@ func Load(path string) (*Config, error) {
 		cfg.RemoteSupport.Display = ":0"
 	}
 	if cfg.RemoteSupport.Port <= 0 {
-		cfg.RemoteSupport.Port = 5900
+		cfg.RemoteSupport.Port = 20010
 	}
 	return &cfg, nil
 }
