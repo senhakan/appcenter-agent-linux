@@ -297,6 +297,15 @@ func main() {
 					persistRemoteSupportSession()
 					return ipc.Response{Status: "error", Error: err.Error(), Data: remoteSupportSnapshot()}
 				}
+				guacdHost := ""
+				guacdReversePort := 0
+				serverVNCPasswordSet := false
+				if approveResp != nil {
+					guacdHost = strings.TrimSpace(approveResp.GuacdHost)
+					guacdReversePort = approveResp.GuacdReversePort
+					serverVNCPasswordSet = strings.TrimSpace(approveResp.VNCPassword) != ""
+				}
+				remoteSupportSession.SetConnectionInfo(guacdHost, guacdReversePort, localVNCPort, serverVNCPasswordSet)
 				remoteSupportSession.Activate()
 				persistRemoteSupportSession()
 				return ipc.Response{Status: "ok", Message: "remote support approved and started", Data: remoteSupportSnapshot()}
@@ -1047,26 +1056,34 @@ func syncInventory(
 
 func remoteSupportSessionToState(s remotesupport.SessionStatus) state.RemoteSupportSession {
 	return state.RemoteSupportSession{
-		State:           s.State,
-		SessionID:       s.SessionID,
-		AdminName:       s.AdminName,
-		Reason:          s.Reason,
-		RequestedAtUnix: s.RequestedAtUnix,
-		DecisionAtUnix:  s.DecisionAtUnix,
-		Message:         s.Message,
-		LastError:       s.LastError,
+		State:                s.State,
+		SessionID:            s.SessionID,
+		AdminName:            s.AdminName,
+		Reason:               s.Reason,
+		RequestedAtUnix:      s.RequestedAtUnix,
+		DecisionAtUnix:       s.DecisionAtUnix,
+		Message:              s.Message,
+		LastError:            s.LastError,
+		GuacdHost:            s.GuacdHost,
+		GuacdReversePort:     s.GuacdReversePort,
+		LocalVNCPort:         s.LocalVNCPort,
+		ServerVNCPasswordSet: s.ServerVNCPasswordSet,
 	}
 }
 
 func remoteSupportSessionFromState(s state.RemoteSupportSession) remotesupport.SessionStatus {
 	return remotesupport.SessionStatus{
-		State:           s.State,
-		SessionID:       s.SessionID,
-		AdminName:       s.AdminName,
-		Reason:          s.Reason,
-		RequestedAtUnix: s.RequestedAtUnix,
-		DecisionAtUnix:  s.DecisionAtUnix,
-		Message:         s.Message,
-		LastError:       s.LastError,
+		State:                s.State,
+		SessionID:            s.SessionID,
+		AdminName:            s.AdminName,
+		Reason:               s.Reason,
+		RequestedAtUnix:      s.RequestedAtUnix,
+		DecisionAtUnix:       s.DecisionAtUnix,
+		Message:              s.Message,
+		LastError:            s.LastError,
+		GuacdHost:            s.GuacdHost,
+		GuacdReversePort:     s.GuacdReversePort,
+		LocalVNCPort:         s.LocalVNCPort,
+		ServerVNCPasswordSet: s.ServerVNCPasswordSet,
 	}
 }

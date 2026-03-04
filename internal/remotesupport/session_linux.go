@@ -18,14 +18,18 @@ const (
 )
 
 type SessionStatus struct {
-	State           string `json:"state"`
-	SessionID       int    `json:"session_id,omitempty"`
-	AdminName       string `json:"admin_name,omitempty"`
-	Reason          string `json:"reason,omitempty"`
-	RequestedAtUnix int64  `json:"requested_at_unix,omitempty"`
-	DecisionAtUnix  int64  `json:"decision_at_unix,omitempty"`
-	Message         string `json:"message,omitempty"`
-	LastError       string `json:"last_error,omitempty"`
+	State                string `json:"state"`
+	SessionID            int    `json:"session_id,omitempty"`
+	AdminName            string `json:"admin_name,omitempty"`
+	Reason               string `json:"reason,omitempty"`
+	RequestedAtUnix      int64  `json:"requested_at_unix,omitempty"`
+	DecisionAtUnix       int64  `json:"decision_at_unix,omitempty"`
+	Message              string `json:"message,omitempty"`
+	LastError            string `json:"last_error,omitempty"`
+	GuacdHost            string `json:"guacd_host,omitempty"`
+	GuacdReversePort     int    `json:"guacd_reverse_port,omitempty"`
+	LocalVNCPort         int    `json:"local_vnc_port,omitempty"`
+	ServerVNCPasswordSet bool   `json:"server_vnc_password_set,omitempty"`
 }
 
 type SessionManager struct {
@@ -106,7 +110,21 @@ func (m *SessionManager) Approve() (SessionStatus, error) {
 	m.status.DecisionAtUnix = time.Now().Unix()
 	m.status.Message = "approved"
 	m.status.LastError = ""
+	m.status.GuacdHost = ""
+	m.status.GuacdReversePort = 0
+	m.status.LocalVNCPort = 0
+	m.status.ServerVNCPasswordSet = false
 	return m.status, nil
+}
+
+func (m *SessionManager) SetConnectionInfo(guacdHost string, guacdReversePort, localVNCPort int, serverVNCPasswordSet bool) SessionStatus {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.status.GuacdHost = guacdHost
+	m.status.GuacdReversePort = guacdReversePort
+	m.status.LocalVNCPort = localVNCPort
+	m.status.ServerVNCPasswordSet = serverVNCPasswordSet
+	return m.status
 }
 
 func (m *SessionManager) Activate() SessionStatus {
@@ -128,6 +146,10 @@ func (m *SessionManager) Reject(reason string) (SessionStatus, error) {
 	m.status.DecisionAtUnix = time.Now().Unix()
 	m.status.Message = "rejected"
 	m.status.LastError = reason
+	m.status.GuacdHost = ""
+	m.status.GuacdReversePort = 0
+	m.status.LocalVNCPort = 0
+	m.status.ServerVNCPasswordSet = false
 	return m.status, nil
 }
 
@@ -138,6 +160,10 @@ func (m *SessionManager) End(message string) SessionStatus {
 	m.status.DecisionAtUnix = time.Now().Unix()
 	m.status.Message = message
 	m.status.LastError = ""
+	m.status.GuacdHost = ""
+	m.status.GuacdReversePort = 0
+	m.status.LocalVNCPort = 0
+	m.status.ServerVNCPasswordSet = false
 	return m.status
 }
 
@@ -150,5 +176,9 @@ func (m *SessionManager) Error(err error) SessionStatus {
 	if err != nil {
 		m.status.LastError = err.Error()
 	}
+	m.status.GuacdHost = ""
+	m.status.GuacdReversePort = 0
+	m.status.LocalVNCPort = 0
+	m.status.ServerVNCPasswordSet = false
 	return m.status
 }

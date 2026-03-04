@@ -21,14 +21,18 @@ type AgentState struct {
 }
 
 type RemoteSupportSession struct {
-	State           string `json:"state,omitempty"`
-	SessionID       int    `json:"session_id,omitempty"`
-	AdminName       string `json:"admin_name,omitempty"`
-	Reason          string `json:"reason,omitempty"`
-	RequestedAtUnix int64  `json:"requested_at_unix,omitempty"`
-	DecisionAtUnix  int64  `json:"decision_at_unix,omitempty"`
-	Message         string `json:"message,omitempty"`
-	LastError       string `json:"last_error,omitempty"`
+	State                string `json:"state,omitempty"`
+	SessionID            int    `json:"session_id,omitempty"`
+	AdminName            string `json:"admin_name,omitempty"`
+	Reason               string `json:"reason,omitempty"`
+	RequestedAtUnix      int64  `json:"requested_at_unix,omitempty"`
+	DecisionAtUnix       int64  `json:"decision_at_unix,omitempty"`
+	Message              string `json:"message,omitempty"`
+	LastError            string `json:"last_error,omitempty"`
+	GuacdHost            string `json:"guacd_host,omitempty"`
+	GuacdReversePort     int    `json:"guacd_reverse_port,omitempty"`
+	LocalVNCPort         int    `json:"local_vnc_port,omitempty"`
+	ServerVNCPasswordSet bool   `json:"server_vnc_password_set,omitempty"`
 }
 
 func Load(path string) (*AgentState, error) {

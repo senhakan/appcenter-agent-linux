@@ -1441,6 +1441,43 @@ Not:
   - `remote support approved by server: session_id=9002 guacd_host=10.6.100.170 guacd_reverse_port=4822 vnc_password_set=true`
   - `remote support x11vnc started: pid=... display=:0 port=5900`
 
+## 2026-03-04 - Remote Support Session Metadata Snapshot/Persistence
+
+- Test host:
+  - IP: `10.6.60.88`
+  - User: `ubuntu`
+- Test setup:
+  - Yeni build `rsync` ile test hosta atildi:
+    - local: `agent_linux/build/service`
+    - remote: `/tmp/ac-live/appcenter-agent-linux`
+  - Lokal mock API (`127.0.0.1:18094`) approve response olarak:
+    - `guacd_host=10.6.100.170`
+    - `guacd_reverse_port=4822`
+    - `vnc_password` (set)
+  - IPC akisi:
+    - `remote_support_session_request(session_id=9003)`
+    - `remote_support_approve(monitor_count=2)`
+    - `remote_support_status`
+    - `remote_support_end`
+
+### Result
+
+- IPC `remote_support_status` session metadata: OK
+  - `guacd_host`, `guacd_reverse_port`, `local_vnc_port`, `server_vnc_password_set` alanlari doldu.
+- Session end sonrasi state temizligi: OK
+  - `state_remote_support_ready_port.json` icinde metadata alanlari kalici tutulmadi.
+
+### Evidence
+
+- IPC output (`remote_support_status`):
+  - `"session":{"state":"active",...,"guacd_host":"10.6.100.170","guacd_reverse_port":4822,"local_vnc_port":5900,"server_vnc_password_set":true}`
+- Mock event ozeti (`/tmp/ac-live/mock_remote_support_ready_port_events.jsonl`):
+  - `/api/v1/agent/remote-support/9003/approve {"approved":true,"monitor_count":2}`
+  - `/api/v1/agent/remote-support/9003/ready {"vnc_ready":true,"local_vnc_port":5900}`
+- State file (`/tmp/ac-live/state_remote_support_ready_port.json`):
+  - `remote_support_session.state="ended"`
+  - metadata alanlari yok (beklenen)
+
 ## 2026-03-03 - Remote Support Env IPC Live Validation
 
 - Test host:
