@@ -25,6 +25,7 @@ import (
 	"appcenter-agent-linux/internal/inventory"
 	"appcenter-agent-linux/internal/ipc"
 	"appcenter-agent-linux/internal/remotesupport"
+	svcmon "appcenter-agent-linux/internal/services"
 	"appcenter-agent-linux/internal/state"
 	"appcenter-agent-linux/internal/system"
 	"appcenter-agent-linux/pkg/utils"
@@ -529,6 +530,10 @@ func main() {
 	}
 	var nextInventorySync time.Time
 	inventoryInterval := 30 * time.Minute
+	var nextServiceSnapshot time.Time
+	serviceMonitoringEnabled := false
+	serviceSyncRequired := false
+	lastServicesHash := ""
 	nextSelfUpdateCheck := time.Now()
 	selfUpdateInterval := 60 * time.Minute
 
@@ -603,6 +608,28 @@ func main() {
 				LogonID:     s.LogonID,
 			})
 		}
+		servicesHash := ""
+		servicesPayload := []api.ServiceItem(nil)
+		if serviceMonitoringEnabled {
+			shouldCollectServices := serviceSyncRequired || lastServicesHash == "" || time.Now().After(nextServiceSnapshot)
+			if shouldCollectServices {
+				collectCtx, cancel := context.WithTimeout(ctx, 25*time.Second)
+				collected, serr := svcmon.Collect(collectCtx)
+				cancel()
+				if serr != nil {
+					logger.Printf("service snapshot collect warning: %v", serr)
+				} else {
+					servicesHash = svcmon.Hash(collected)
+					if serviceSyncRequired || servicesHash != lastServicesHash {
+						servicesPayload = collected
+					}
+					lastServicesHash = servicesHash
+					nextServiceSnapshot = time.Now().Add(inventoryInterval)
+				}
+			} else {
+				servicesHash = lastServicesHash
+			}
+		}
 		hb, hbErr := client.Heartbeat(ctx, st.UUID, st.SecretKey, api.HeartbeatRequest{
 			Hostname:         info.Hostname,
 			IPAddress:        info.IPAddress,
@@ -621,6 +648,8 @@ func main() {
 			AppsChanged:      false,
 			InstalledApps:    []any{},
 			InventoryHash:    st.InventoryHash,
+			ServicesHash:     servicesHash,
+			Services:         servicesPayload,
 			LoggedInSessions: apiSessions,
 			Platform:         info.Platform,
 			SystemProfile: &api.SystemProfile{
@@ -657,6 +686,11 @@ func main() {
 		logger.Printf("%s heartbeat ok: status=%s commands=%d", reason, hb.Status, len(hb.Commands))
 		if hb.Config.InventoryScanIntervalMin > 0 {
 			inventoryInterval = time.Duration(hb.Config.InventoryScanIntervalMin) * time.Minute
+		}
+		serviceMonitoringEnabled = hb.Config.ServiceMonitoringEnabled
+		serviceSyncRequired = hb.Config.ServicesSyncRequired
+		if serviceMonitoringEnabled && nextServiceSnapshot.IsZero() {
+			nextServiceSnapshot = time.Time{}
 		}
 		if hb.Config.RuntimeUpdateIntervalMin > 0 {
 			selfUpdateInterval = time.Duration(hb.Config.RuntimeUpdateIntervalMin) * time.Minute
@@ -913,6 +947,7 @@ func newUUIDLike() string {
 
 func runInstallCommand(ctx context.Context, client *api.Client, cfg *config.Config, agentUUID, secret string, cmd api.Command, logger *log.Logger) bool {
 	start := time.Now()
+	logger.Printf("task=%d app=%d install start: action=%s version=%s", cmd.TaskID, cmd.AppID, cmd.Action, cmd.AppVersion)
 	reportTaskStatus(ctx, client, agentUUID, secret, cmd.TaskID, api.TaskStatusRequest{
 		Status:   "downloading",
 		Progress: 10,
@@ -933,7 +968,7 @@ func runInstallCommand(ctx context.Context, client *api.Client, cfg *config.Conf
 		}, logger)
 	}
 	if n > 0 {
-		logger.Printf("task=%d download ok: bytes=%d path=%s", cmd.TaskID, n, outPath)
+		logger.Printf("task=%d app=%d download completed: bytes=%d file=%s", cmd.TaskID, cmd.AppID, n, filepath.Base(outPath))
 	}
 	defer cleanupDownloadedPackage(outPath, cmd.TaskID, logger)
 	if cfg.Download.MaxSizeBytes > 0 && n > cfg.Download.MaxSizeBytes {
@@ -985,6 +1020,8 @@ func runInstallCommand(ctx context.Context, client *api.Client, cfg *config.Conf
 	installStart := time.Now()
 	installCtx, cancel := context.WithTimeout(ctx, time.Duration(cfg.Install.TimeoutSec)*time.Second)
 	defer cancel()
+	installerType := detectLinuxInstallerType(outPath)
+	logger.Printf("task=%d app=%d installer run: type=%s args=%q", cmd.TaskID, cmd.AppID, installerType, cmd.InstallArgs)
 	stdout, exitCode, installErr := installer.Install(installCtx, outPath, cmd.InstallArgs)
 	installSec := int(time.Since(installStart).Seconds())
 
@@ -994,7 +1031,7 @@ func runInstallCommand(ctx context.Context, client *api.Client, cfg *config.Conf
 			if strings.TrimSpace(stdout) != "" {
 				msg = msg + " | " + trimOutput(stdout, 1200)
 			}
-			logger.Printf("task=%d install timeout: %s", cmd.TaskID, msg)
+			logger.Printf("task=%d app=%d install failed: type=%s exit=%d download_sec=%d install_sec=%d err=%s", cmd.TaskID, cmd.AppID, installerType, exitCode, downloadSec, installSec, msg)
 			return reportTaskStatus(ctx, client, agentUUID, secret, cmd.TaskID, api.TaskStatusRequest{
 				Status:              "timeout",
 				Progress:            100,
@@ -1009,7 +1046,7 @@ func runInstallCommand(ctx context.Context, client *api.Client, cfg *config.Conf
 			msg = msg + " | " + trimOutput(stdout, 1200)
 		}
 		code := exitCode
-		logger.Printf("task=%d install failed: %s", cmd.TaskID, msg)
+		logger.Printf("task=%d app=%d install failed: type=%s exit=%d download_sec=%d install_sec=%d err=%s", cmd.TaskID, cmd.AppID, installerType, exitCode, downloadSec, installSec, msg)
 		return reportTaskStatus(ctx, client, agentUUID, secret, cmd.TaskID, api.TaskStatusRequest{
 			Status:              "failed",
 			Progress:            100,
@@ -1031,7 +1068,15 @@ func runInstallCommand(ctx context.Context, client *api.Client, cfg *config.Conf
 		DownloadDurationSec: downloadSec,
 		InstallDurationSec:  installSec,
 	}, logger)
-	logger.Printf("task=%d install success", cmd.TaskID)
+	logger.Printf(
+		"task=%d app=%d install success: type=%s exit=%d download_sec=%d install_sec=%d",
+		cmd.TaskID,
+		cmd.AppID,
+		installerType,
+		successCode,
+		downloadSec,
+		installSec,
+	)
 	return terminalReported
 }
 
@@ -1071,6 +1116,20 @@ func buildDownloadFilename(cmd api.Command) string {
 		ext = ".sh"
 	}
 	return fmt.Sprintf("task_%d_app_%d%s", cmd.TaskID, cmd.AppID, ext)
+}
+
+func detectLinuxInstallerType(path string) string {
+	lower := strings.ToLower(strings.TrimSpace(path))
+	switch {
+	case strings.HasSuffix(lower, ".tar.gz"):
+		return ".tar.gz"
+	case strings.HasSuffix(lower, ".deb"):
+		return ".deb"
+	case strings.HasSuffix(lower, ".sh"):
+		return ".sh"
+	default:
+		return filepath.Ext(lower)
+	}
 }
 
 func trimOutput(s string, max int) string {
