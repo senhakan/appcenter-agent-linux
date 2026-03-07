@@ -71,6 +71,8 @@ type HeartbeatRequest struct {
 	AppsChanged      bool                    `json:"apps_changed"`
 	InstalledApps    []any                   `json:"installed_apps"`
 	InventoryHash    string                  `json:"inventory_hash,omitempty"`
+	ServicesHash     string                  `json:"services_hash,omitempty"`
+	Services         []ServiceItem           `json:"services,omitempty"`
 	LoggedInSessions []LoggedInSession       `json:"logged_in_sessions,omitempty"`
 	Platform         string                  `json:"platform,omitempty"`
 	SystemProfile    *SystemProfile          `json:"system_profile,omitempty"`
@@ -113,10 +115,12 @@ type SystemProfile struct {
 }
 
 type HeartbeatConfig struct {
-	HeartbeatIntervalSec     int  `json:"heartbeat_interval_sec"`
-	InventorySyncRequired    bool `json:"inventory_sync_required"`
-	InventoryScanIntervalMin int  `json:"inventory_scan_interval_min"`
-	RemoteSupportEnabled     bool `json:"remote_support_enabled"`
+	HeartbeatIntervalSec     int    `json:"heartbeat_interval_sec"`
+	InventorySyncRequired    bool   `json:"inventory_sync_required"`
+	ServicesSyncRequired     bool   `json:"services_sync_required"`
+	ServiceMonitoringEnabled bool   `json:"service_monitoring_enabled"`
+	InventoryScanIntervalMin int    `json:"inventory_scan_interval_min"`
+	RemoteSupportEnabled     bool   `json:"remote_support_enabled"`
 	LatestAgentVersion       string `json:"latest_agent_version,omitempty"`
 	AgentDownloadURL         string `json:"agent_download_url,omitempty"`
 	AgentHash                string `json:"agent_hash,omitempty"`
@@ -171,6 +175,16 @@ type SoftwareItem struct {
 	Architecture    string `json:"architecture,omitempty"`
 }
 
+type ServiceItem struct {
+	Name        string `json:"name"`
+	DisplayName string `json:"display_name,omitempty"`
+	Status      string `json:"status,omitempty"`
+	StartupType string `json:"startup_type,omitempty"`
+	PID         int    `json:"pid,omitempty"`
+	RunAs       string `json:"run_as,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
 type InventoryRequest struct {
 	InventoryHash string         `json:"inventory_hash"`
 	SoftwareCount int            `json:"software_count"`
@@ -209,9 +223,10 @@ type RemoteSupportHeartbeat struct {
 }
 
 type RemoteSupportRequest struct {
-	SessionID int    `json:"session_id"`
-	AdminName string `json:"admin_name"`
-	Reason    string `json:"reason,omitempty"`
+	SessionID        int    `json:"session_id"`
+	AdminName        string `json:"admin_name"`
+	Reason           string `json:"reason,omitempty"`
+	RequiresApproval bool   `json:"requires_approval"`
 }
 
 type RemoteSupportEnd struct {

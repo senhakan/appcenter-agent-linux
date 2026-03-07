@@ -2526,3 +2526,85 @@ curl -fsSL http://10.6.100.170:8000/uploads/agent_linux/bootstrap.sh | sudo bash
 
 - Linux agent self-update akisi canli ortamda 2/2 basarili.
 - Paket indirme + SHA256 dogrulama + binary aktivasyon + restart + config version update adimlari dogrulandi.
+
+## 2026-03-04 - Service Monitoring (Windows+Linux ortak model) Live Validation
+
+### Scope
+
+- Heartbeat payload'ina `services_hash` + `services` alanlari eklendi.
+- Server tarafinda:
+  - `agents.services_json/services_hash/services_updated_at`
+  - `agent_service_history` (added/removed/status_changed/startup_changed/updated)
+  - Global ayar: `service_monitoring_enabled`
+  - Agent override: `agents.service_monitoring_enabled`
+
+### Deploy
+
+- Server app dosyalari canliya rsync ile aktarildi ve `appcenter.service` restart edildi.
+- Linux self-update yayinlandi: `0.1.40-live`
+  - `agent_linux_0.1.40-live_0094e3c1.bin`
+- Windows self-update yayinlandi: `0.1.34`
+  - `agent_windows_0.1.34_8a1acf39.exe`
+
+### Live Clients
+
+- Linux:
+  - `6e7d0051-a093-4d95-9f7c-c8c663c35fbd` (`10.6.60.88`) -> `0.1.40-live`
+  - `d85705fd-d8ee-4654-9879-d982141e558c` (`10.6.60.181`) -> `0.1.40-live`
+- Windows:
+  - `54d2ad5c-5b66-477d-82da-e5a22ef6dc01` (`10.6.20.172`) -> `0.1.34`
+
+### Verification
+
+- Snapshot geldi:
+  - Linux 88: `svc_count=194`
+  - Linux 181: `svc_count=150`
+  - Windows 172: `svc_count=293`
+- History kayitlari olustu (`added`).
+- Ajan override endpoint test edildi:
+  - `PUT /api/v1/agents/{uuid}/service-monitoring` -> `enabled=true/false/null` calisiyor.
+- Durum degisimi testi:
+  - Linux 88'de `cron.service` stop/start yapildi.
+  - `agent_service_history` icinde `status_changed` kayitlari goruldu:
+    - `running -> stopped`
+    - `stopped -> running`
+
+### Result
+
+- Ortak servis izleme akisi (Windows+Linux), dusuk trafik hash+delta mantigi ile canli ortamda calisti.
+
+## 2026-03-04 - Windows Agent Status Flapping (Signal Disconnect) Analysis & Fix
+
+### Problem
+
+- Windows test ajanda status gecmisinde saniyelik `online -> offline -> online` dalgalanma gozlemlendi.
+- Ornek ajan: `54d2ad5c-5b66-477d-82da-e5a22ef6dc01`
+- Ornek olay:
+  - `15:37:09 UTC` `online -> offline` (`reason=signal_disconnect`)
+  - `15:37:11 UTC` `offline -> online` (`reason=heartbeat`)
+
+### Kok neden
+
+- Server `/api/v1/agent/signal` long-poll endpointi, normal timeout dongulerinde listener kapanisini "disconnect" gibi yorumlayip `signal_disconnect` uretiyordu.
+- Agent heartbeat ile tekrar online oldugu icin kisa aralikla flapping oluyordu.
+
+### Uygulanan cozum
+
+- `server/app/api/v1/agent.py`:
+  - Signal endpointten status degistiren kodlar kaldirildi:
+    - `_mark_agent_online_from_signal`
+    - `_mark_agent_offline_if_signal_stale`
+    - `_schedule_signal_disconnect_offline`
+  - Signal endpoint artik sadece wake-up mekanizmasi.
+- Online/offline gecisleri heartbeat odakli devam ediyor.
+
+### Canli dogrulama
+
+- Patch canliya rsync + service restart ile uygulandi.
+- Ayni Windows ajan 75+ saniye izlendi.
+- Yeni `signal_disconnect` kaynakli flapping kaydi olusmadi.
+
+### Sonuc
+
+- Status history artik signal timeout dongusunden etkilenmiyor.
+- Flapping problemi heartbeat disi sinyal akisindan temizlendi.

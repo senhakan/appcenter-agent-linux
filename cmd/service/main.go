@@ -747,11 +747,19 @@ func main() {
 				} else {
 					persistRemoteSupportSession()
 					logger.Printf("remote support request received: session_id=%d", hb.RemoteSupportRequest.SessionID)
-					startApprovalPrompt(
-						hb.RemoteSupportRequest.SessionID,
-						strings.TrimSpace(hb.RemoteSupportRequest.AdminName),
-						strings.TrimSpace(hb.RemoteSupportRequest.Reason),
-					)
+					if hb.RemoteSupportRequest.RequiresApproval {
+						startApprovalPrompt(
+							hb.RemoteSupportRequest.SessionID,
+							strings.TrimSpace(hb.RemoteSupportRequest.AdminName),
+							strings.TrimSpace(hb.RemoteSupportRequest.Reason),
+						)
+					} else {
+						if err := approveRemoteSession(1); err != nil {
+							logger.Printf("remote support auto-approve failed: session_id=%d err=%v", hb.RemoteSupportRequest.SessionID, err)
+						} else {
+							logger.Printf("remote support auto-approved by policy: session_id=%d", hb.RemoteSupportRequest.SessionID)
+						}
+					}
 				}
 			}
 		}
