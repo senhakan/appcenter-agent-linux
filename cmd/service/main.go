@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -28,6 +30,7 @@ import (
 	svcmon "appcenter-agent-linux/internal/services"
 	"appcenter-agent-linux/internal/state"
 	"appcenter-agent-linux/internal/system"
+	"appcenter-agent-linux/internal/wsconn"
 	"appcenter-agent-linux/pkg/utils"
 )
 
@@ -287,6 +290,7 @@ func main() {
 	}
 	info := system.CollectHostInfo()
 	triggerCh := make(chan struct{}, 1)
+	var wsActive atomic.Bool
 	var hasSecret atomic.Bool
 	hasSecret.Store(st.SecretKey != "")
 	if restored := remoteSupportSession.Snapshot(); restored.State == remotesupport.StatePending && restored.RequestedAtUnix > 0 {
@@ -464,6 +468,10 @@ func main() {
 				return
 			default:
 			}
+			if wsActive.Load() {
+				time.Sleep(5 * time.Second)
+				continue
+			}
 			if !hasSecret.Load() {
 				time.Sleep(2 * time.Second)
 				continue
@@ -536,6 +544,333 @@ func main() {
 	lastServicesHash := ""
 	nextSelfUpdateCheck := time.Now()
 	selfUpdateInterval := 60 * time.Minute
+	remoteSupportServerEnabled := false
+	var configMu sync.Mutex
+
+	processCommands := func(commands []api.Command) {
+		configMu.Lock()
+		configMu.Unlock()
+		for _, cmd := range commands {
+			if strings.ToLower(strings.TrimSpace(cmd.Action)) != "install" {
+				logger.Printf("task=%d unsupported action: %s", cmd.TaskID, strings.TrimSpace(cmd.Action))
+				reportTaskStatus(ctx, client, st.UUID, st.SecretKey, cmd.TaskID, api.TaskStatusRequest{
+					Status:   "failed",
+					Progress: 100,
+					Message:  "Unsupported command action",
+					Error:    fmt.Sprintf("unsupported action: %s", strings.TrimSpace(cmd.Action)),
+				}, logger)
+				continue
+			}
+			if !taskGuard.TryStart(cmd.TaskID) {
+				logger.Printf("task=%d duplicate command skipped", cmd.TaskID)
+				continue
+			}
+			if errMsg := validateInstallCommand(cmd); errMsg != "" {
+				logger.Printf("task=%d invalid install command: %s", cmd.TaskID, errMsg)
+				terminalReported := true
+				if cmd.TaskID > 0 {
+					terminalReported = reportTaskStatus(ctx, client, st.UUID, st.SecretKey, cmd.TaskID, api.TaskStatusRequest{
+						Status:   "failed",
+						Progress: 100,
+						Message:  "Invalid install command",
+						Error:    errMsg,
+					}, logger)
+				}
+				taskGuard.Finish(cmd.TaskID, terminalReported)
+				persistTaskDeduper(cfg.Paths.StateFile, st, taskGuard, logger)
+				continue
+			}
+			select {
+			case installQueue <- installJob{command: cmd}:
+				logger.Printf("task=%d queued for install", cmd.TaskID)
+			default:
+				logger.Printf("task=%d install queue is full", cmd.TaskID)
+				terminalReported := reportTaskStatus(ctx, client, st.UUID, st.SecretKey, cmd.TaskID, api.TaskStatusRequest{
+					Status:   "failed",
+					Progress: 100,
+					Message:  "Install queue is full",
+					Error:    "install queue capacity reached",
+				}, logger)
+				taskGuard.Finish(cmd.TaskID, terminalReported)
+				persistTaskDeduper(cfg.Paths.StateFile, st, taskGuard, logger)
+			}
+		}
+	}
+
+	var applyServerConfig func(serverConfig map[string]any)
+	var enforceRemoteSupportPolicy func() bool
+	var handleRSRequest func(req *api.RemoteSupportRequest)
+	var handleRSEnd func(end *api.RemoteSupportEnd)
+	var wsStartOnce sync.Once
+	startWSClient := func() {
+		wsStartOnce.Do(func() {
+			hostInfo := system.CollectHostInfo()
+			wsClient := wsconn.NewClient(wsconn.Config{
+				ServerURL:       cfg.Server.URL,
+				WSURL:           cfg.WebSocket.URL,
+				AgentUUID:       st.UUID,
+				SecretKey:       st.SecretKey,
+				Version:         cfg.Agent.Version,
+				Platform:        runtime.GOOS,
+				Arch:            runtime.GOARCH,
+				Hostname:        hostInfo.Hostname,
+				OSVersion:       hostInfo.OSVersion,
+				ReconnectMinSec: cfg.WebSocket.ReconnectMinSec,
+				ReconnectMaxSec: cfg.WebSocket.ReconnectMaxSec,
+				Callbacks: wsconn.Callbacks{
+					OnConnected: func() {
+						wsActive.Store(true)
+						logger.Println("ws: connected, HTTP heartbeat suppressed")
+					},
+					OnDisconnected: func() {
+						wsActive.Store(false)
+						logger.Println("ws: disconnected, HTTP heartbeat resumed")
+						select {
+						case triggerCh <- struct{}{}:
+						default:
+						}
+					},
+					OnSignal: func() {
+						select {
+						case triggerCh <- struct{}{}:
+						default:
+						}
+					},
+					OnServerHello: func(payload map[string]any) {
+						logger.Printf("ws: server.hello received")
+						if serverConfig, ok := payload["config"].(map[string]any); ok {
+							applyServerConfig(serverConfig)
+							if hbCfg := parseHeartbeatConfigFromMap(serverConfig); hbCfg != nil {
+								configMu.Lock()
+								shouldCheck := time.Now().After(nextSelfUpdateCheck)
+								if shouldCheck {
+									nextSelfUpdateCheck = time.Now().Add(selfUpdateInterval)
+								}
+								configMu.Unlock()
+								if shouldCheck {
+									maybeApplySelfUpdate(ctx, client, cfg, resolved, st.UUID, st.SecretKey, *hbCfg, logger)
+								}
+							}
+						}
+						enforceRemoteSupportPolicy()
+						processCommands(parseCommandsFromPayload(payload))
+						handleRSRequest(parseRSRequestFromPayload(payload))
+						handleRSEnd(parseRSEndFromPayload(payload))
+					},
+					OnServerCommand: func(payload map[string]any) {
+						processCommands(parseCommandsFromPayload(payload))
+					},
+					OnRSRequest: func(payload map[string]any) {
+						handleRSRequest(parseRSRequestFromPayload(payload))
+					},
+					OnRSEnd: func(payload map[string]any) {
+						handleRSEnd(parseRSEndFromPayload(payload))
+					},
+					OnConfigPatch: func(payload map[string]any) {
+						if changes, ok := payload["changes"].(map[string]any); ok {
+							applyServerConfig(changes)
+							enforceRemoteSupportPolicy()
+							if hbCfg := parseHeartbeatConfigFromMap(changes); hbCfg != nil {
+								if hbCfg.LatestAgentVersion != "" && hbCfg.AgentDownloadURL != "" {
+									configMu.Lock()
+									shouldCheck := time.Now().After(nextSelfUpdateCheck)
+									if shouldCheck {
+										nextSelfUpdateCheck = time.Now().Add(selfUpdateInterval)
+									}
+									configMu.Unlock()
+									if shouldCheck {
+										maybeApplySelfUpdate(ctx, client, cfg, resolved, st.UUID, st.SecretKey, *hbCfg, logger)
+									}
+								}
+							}
+						}
+					},
+				},
+				Logger: logger,
+			})
+			go wsClient.Run(ctx)
+		})
+	}
+
+	enforceRemoteSupportPolicy = func() bool {
+		configMu.Lock()
+		remoteSupportAllowed := cfg.RemoteSupport.Enabled && remoteSupportServerEnabled
+		configMu.Unlock()
+		if !remoteSupportAllowed {
+			cur := remoteSupportSession.Snapshot()
+			if cur.State == remotesupport.StatePending || cur.State == remotesupport.StateApproved || cur.State == remotesupport.StateActive {
+				if _, err := remoteSupportManager.Stop(); err != nil {
+					logger.Printf("remote support stop warning: %v", err)
+				}
+				remoteSupportSession.End("disabled by config")
+				if err := sendRemoteEnded(cur.SessionID, "disabled by config"); err != nil {
+					logger.Printf("remote support ended report warning: %v", err)
+				}
+				persistRemoteSupportSession()
+				logger.Printf("remote support session terminated because feature disabled")
+			}
+			return false
+		}
+		cur := remoteSupportSession.Snapshot()
+		if cur.State == remotesupport.StatePending && cur.RequestedAtUnix > 0 {
+			deadline := cur.RequestedAtUnix + int64(cfg.RemoteSupport.ApprovalTimeoutSec)
+			if time.Now().Unix() > deadline {
+				remoteSupportSession.Reject("approval timeout")
+				if _, err := sendRemoteApprove(cur.SessionID, false, 0); err != nil {
+					logger.Printf("remote support timeout reject report warning: %v", err)
+				}
+				persistRemoteSupportSession()
+				logger.Printf("remote support session timed out waiting approval: session_id=%d", cur.SessionID)
+			}
+		}
+		return true
+	}
+
+	handleRSRequest = func(req *api.RemoteSupportRequest) {
+		configMu.Lock()
+		configMu.Unlock()
+		if req == nil {
+			return
+		}
+		if !enforceRemoteSupportPolicy() {
+			logger.Printf("remote support request ignored: feature disabled")
+			return
+		}
+		_, err := remoteSupportSession.Begin(
+			req.SessionID,
+			strings.TrimSpace(req.AdminName),
+			strings.TrimSpace(req.Reason),
+		)
+		if err != nil {
+			logger.Printf("remote support request ignored: %v", err)
+			return
+		}
+		persistRemoteSupportSession()
+		logger.Printf("remote support request received: session_id=%d", req.SessionID)
+		if req.RequiresApproval {
+			startApprovalPrompt(
+				req.SessionID,
+				strings.TrimSpace(req.AdminName),
+				strings.TrimSpace(req.Reason),
+			)
+			return
+		}
+		if err := approveRemoteSession(1); err != nil {
+			logger.Printf("remote support auto-approve failed: session_id=%d err=%v", req.SessionID, err)
+		} else {
+			logger.Printf("remote support auto-approved by policy: session_id=%d", req.SessionID)
+		}
+	}
+
+	handleRSEnd = func(end *api.RemoteSupportEnd) {
+		configMu.Lock()
+		configMu.Unlock()
+		if end == nil || end.SessionID <= 0 {
+			return
+		}
+		cur := remoteSupportSession.Snapshot()
+		if cur.SessionID != end.SessionID {
+			return
+		}
+		if _, err := remoteSupportManager.Stop(); err != nil {
+			logger.Printf("remote support stop warning: %v", err)
+		}
+		remoteSupportSession.End("ended by server")
+		persistRemoteSupportSession()
+		if err := sendRemoteEnded(end.SessionID, "ended by server signal"); err != nil {
+			logger.Printf("remote support ended report warning: %v", err)
+		}
+		logger.Printf("remote support end signal handled: session_id=%d", end.SessionID)
+	}
+
+	applyServerConfig = func(serverConfig map[string]any) {
+		if serverConfig == nil {
+			return
+		}
+		shouldStartWSClient := false
+		persistWSValue := false
+		persistWSEnabled := false
+		heartbeatUpdated := false
+		updatedHeartbeatInterval := 0
+		configMu.Lock()
+		if v, ok := serverConfig["inventory_scan_interval_min"]; ok {
+			if iv, ok := intFromAny(v); ok && iv > 0 {
+				inventoryInterval = time.Duration(iv) * time.Minute
+			}
+		}
+		if v, ok := serverConfig["service_monitoring_enabled"]; ok {
+			if b, ok := v.(bool); ok {
+				serviceMonitoringEnabled = b
+				if b && nextServiceSnapshot.IsZero() {
+					nextServiceSnapshot = time.Time{}
+				}
+			}
+		}
+		if v, ok := serverConfig["services_sync_required"]; ok {
+			if b, ok := v.(bool); ok {
+				serviceSyncRequired = b
+			}
+		}
+		if v, ok := serverConfig["runtime_update_interval_min"]; ok {
+			if iv, ok := intFromAny(v); ok && iv > 0 {
+				selfUpdateInterval = time.Duration(iv) * time.Minute
+			}
+		}
+		if v, ok := serverConfig["inventory_sync_required"]; ok {
+			if b, ok := v.(bool); ok && b {
+				nextInventorySync = time.Time{}
+			}
+		}
+		if v, ok := serverConfig["remote_support_enabled"]; ok {
+			if b, ok := v.(bool); ok {
+				remoteSupportServerEnabled = b
+			}
+		}
+		if v, ok := serverConfig["websocket_enabled"]; ok {
+			if b, ok := v.(bool); ok {
+				if b {
+					if !cfg.WebSocket.Enabled {
+						cfg.WebSocket.Enabled = true
+						persistWSValue = true
+						persistWSEnabled = true
+					}
+					shouldStartWSClient = true
+				} else if cfg.WebSocket.Enabled {
+					cfg.WebSocket.Enabled = false
+					persistWSValue = true
+					persistWSEnabled = false
+				}
+			}
+		}
+		if v, ok := serverConfig["heartbeat_interval_sec"]; ok {
+			if iv, ok := intFromAny(v); ok && iv > 0 && iv != interval {
+				interval = iv
+				heartbeatUpdated = true
+				updatedHeartbeatInterval = interval
+			}
+		}
+		configMu.Unlock()
+		if persistWSValue {
+			if persistWSEnabled {
+				logger.Printf("ws: enabled via server config")
+				if err := config.Save(resolved, cfg); err != nil {
+					logger.Printf("ws: failed to persist websocket.enabled=true: %v", err)
+				}
+			} else {
+				logger.Printf("ws: disabled via server config")
+				if err := config.Save(resolved, cfg); err != nil {
+					logger.Printf("ws: failed to persist websocket.enabled=false: %v", err)
+				}
+			}
+		}
+		if shouldStartWSClient {
+			startWSClient()
+		}
+		if heartbeatUpdated {
+			ticker.Reset(time.Duration(updatedHeartbeatInterval) * time.Second)
+			logger.Printf("heartbeat interval updated: %ds", updatedHeartbeatInterval)
+		}
+	}
 
 	sendHeartbeat := func(reason string) {
 		info = system.CollectHostInfo()
@@ -610,8 +945,15 @@ func main() {
 		}
 		servicesHash := ""
 		servicesPayload := []api.ServiceItem(nil)
-		if serviceMonitoringEnabled {
-			shouldCollectServices := serviceSyncRequired || lastServicesHash == "" || time.Now().After(nextServiceSnapshot)
+		configMu.Lock()
+		serviceMonitoringEnabledSnapshot := serviceMonitoringEnabled
+		serviceSyncRequiredSnapshot := serviceSyncRequired
+		lastServicesHashSnapshot := lastServicesHash
+		nextServiceSnapshotSnapshot := nextServiceSnapshot
+		inventoryIntervalSnapshot := inventoryInterval
+		configMu.Unlock()
+		if serviceMonitoringEnabledSnapshot {
+			shouldCollectServices := serviceSyncRequiredSnapshot || lastServicesHashSnapshot == "" || time.Now().After(nextServiceSnapshotSnapshot)
 			if shouldCollectServices {
 				collectCtx, cancel := context.WithTimeout(ctx, 25*time.Second)
 				collected, serr := svcmon.Collect(collectCtx)
@@ -620,14 +962,16 @@ func main() {
 					logger.Printf("service snapshot collect warning: %v", serr)
 				} else {
 					servicesHash = svcmon.Hash(collected)
-					if serviceSyncRequired || servicesHash != lastServicesHash {
+					if serviceSyncRequiredSnapshot || servicesHash != lastServicesHashSnapshot {
 						servicesPayload = collected
 					}
+					configMu.Lock()
 					lastServicesHash = servicesHash
-					nextServiceSnapshot = time.Now().Add(inventoryInterval)
+					nextServiceSnapshot = time.Now().Add(inventoryIntervalSnapshot)
+					configMu.Unlock()
 				}
 			} else {
-				servicesHash = lastServicesHash
+				servicesHash = lastServicesHashSnapshot
 			}
 		}
 		hb, hbErr := client.Heartbeat(ctx, st.UUID, st.SecretKey, api.HeartbeatRequest{
@@ -684,158 +1028,40 @@ func main() {
 			return
 		}
 		logger.Printf("%s heartbeat ok: status=%s commands=%d", reason, hb.Status, len(hb.Commands))
-		if hb.Config.InventoryScanIntervalMin > 0 {
-			inventoryInterval = time.Duration(hb.Config.InventoryScanIntervalMin) * time.Minute
-		}
-		serviceMonitoringEnabled = hb.Config.ServiceMonitoringEnabled
-		serviceSyncRequired = hb.Config.ServicesSyncRequired
-		if serviceMonitoringEnabled && nextServiceSnapshot.IsZero() {
-			nextServiceSnapshot = time.Time{}
-		}
-		if hb.Config.RuntimeUpdateIntervalMin > 0 {
-			selfUpdateInterval = time.Duration(hb.Config.RuntimeUpdateIntervalMin) * time.Minute
-		}
-		if hb.Config.InventorySyncRequired {
-			nextInventorySync = time.Time{}
-		}
-		if time.Now().After(nextSelfUpdateCheck) {
+		applyServerConfig(heartbeatConfigToMap(hb.Config))
+		configMu.Lock()
+		shouldCheckSelfUpdate := time.Now().After(nextSelfUpdateCheck)
+		if shouldCheckSelfUpdate {
 			nextSelfUpdateCheck = time.Now().Add(selfUpdateInterval)
+		}
+		configMu.Unlock()
+		if shouldCheckSelfUpdate {
 			if maybeApplySelfUpdate(ctx, client, cfg, resolved, st.UUID, st.SecretKey, hb.Config, logger) {
 				return
 			}
 		}
-		remoteSupportAllowed := cfg.RemoteSupport.Enabled && hb.Config.RemoteSupportEnabled
-		if !remoteSupportAllowed {
-			cur := remoteSupportSession.Snapshot()
-			if cur.State == remotesupport.StatePending || cur.State == remotesupport.StateApproved || cur.State == remotesupport.StateActive {
-				if _, err := remoteSupportManager.Stop(); err != nil {
-					logger.Printf("remote support stop warning: %v", err)
-				}
-				remoteSupportSession.End("disabled by config")
-				if err := sendRemoteEnded(cur.SessionID, "disabled by config"); err != nil {
-					logger.Printf("remote support ended report warning: %v", err)
-				}
-				persistRemoteSupportSession()
-				logger.Printf("remote support session terminated because feature disabled")
-			}
-		}
-		if remoteSupportAllowed {
-			cur := remoteSupportSession.Snapshot()
-			if cur.State == remotesupport.StatePending && cur.RequestedAtUnix > 0 {
-				deadline := cur.RequestedAtUnix + int64(cfg.RemoteSupport.ApprovalTimeoutSec)
-				if time.Now().Unix() > deadline {
-					remoteSupportSession.Reject("approval timeout")
-					if _, err := sendRemoteApprove(cur.SessionID, false, 0); err != nil {
-						logger.Printf("remote support timeout reject report warning: %v", err)
-					}
-					persistRemoteSupportSession()
-					logger.Printf("remote support session timed out waiting approval: session_id=%d", cur.SessionID)
-				}
-			}
-		}
-		if hb.RemoteSupportRequest != nil {
-			if !remoteSupportAllowed {
-				logger.Printf("remote support request ignored: feature disabled")
-			} else {
-				_, err := remoteSupportSession.Begin(
-					hb.RemoteSupportRequest.SessionID,
-					strings.TrimSpace(hb.RemoteSupportRequest.AdminName),
-					strings.TrimSpace(hb.RemoteSupportRequest.Reason),
-				)
-				if err != nil {
-					logger.Printf("remote support request ignored: %v", err)
-				} else {
-					persistRemoteSupportSession()
-					logger.Printf("remote support request received: session_id=%d", hb.RemoteSupportRequest.SessionID)
-					if hb.RemoteSupportRequest.RequiresApproval {
-						startApprovalPrompt(
-							hb.RemoteSupportRequest.SessionID,
-							strings.TrimSpace(hb.RemoteSupportRequest.AdminName),
-							strings.TrimSpace(hb.RemoteSupportRequest.Reason),
-						)
-					} else {
-						if err := approveRemoteSession(1); err != nil {
-							logger.Printf("remote support auto-approve failed: session_id=%d err=%v", hb.RemoteSupportRequest.SessionID, err)
-						} else {
-							logger.Printf("remote support auto-approved by policy: session_id=%d", hb.RemoteSupportRequest.SessionID)
-						}
-					}
-				}
-			}
-		}
-		if hb.RemoteSupportEnd != nil && hb.RemoteSupportEnd.SessionID > 0 {
-			cur := remoteSupportSession.Snapshot()
-			if cur.SessionID == hb.RemoteSupportEnd.SessionID {
-				if _, err := remoteSupportManager.Stop(); err != nil {
-					logger.Printf("remote support stop warning: %v", err)
-				}
-				remoteSupportSession.End("ended by server")
-				persistRemoteSupportSession()
-				if err := sendRemoteEnded(hb.RemoteSupportEnd.SessionID, "ended by server signal"); err != nil {
-					logger.Printf("remote support ended report warning: %v", err)
-				}
-				logger.Printf("remote support end signal handled: session_id=%d", hb.RemoteSupportEnd.SessionID)
-			}
-		}
+		enforceRemoteSupportPolicy()
+		handleRSRequest(hb.RemoteSupportRequest)
+		handleRSEnd(hb.RemoteSupportEnd)
 		now := time.Now()
-		if now.After(nextInventorySync) {
+		configMu.Lock()
+		shouldSyncInventory := now.After(nextInventorySync)
+		inventoryIntervalForSync := inventoryInterval
+		configMu.Unlock()
+		if shouldSyncInventory {
 			ok := syncInventory(ctx, client, cfg.Paths.StateFile, st, st.UUID, st.SecretKey, logger)
+			configMu.Lock()
 			if ok {
-				nextInventorySync = now.Add(inventoryInterval)
+				nextInventorySync = now.Add(inventoryIntervalForSync)
 			} else {
 				nextInventorySync = now.Add(2 * time.Minute)
 			}
+			configMu.Unlock()
 		}
-		if hb.Config.HeartbeatIntervalSec > 0 && hb.Config.HeartbeatIntervalSec != interval {
-			interval = hb.Config.HeartbeatIntervalSec
-			ticker.Reset(time.Duration(interval) * time.Second)
-			logger.Printf("heartbeat interval updated: %ds", interval)
-		}
-		for _, cmd := range hb.Commands {
-			if strings.ToLower(strings.TrimSpace(cmd.Action)) != "install" {
-				logger.Printf("task=%d unsupported action: %s", cmd.TaskID, strings.TrimSpace(cmd.Action))
-				reportTaskStatus(ctx, client, st.UUID, st.SecretKey, cmd.TaskID, api.TaskStatusRequest{
-					Status:   "failed",
-					Progress: 100,
-					Message:  "Unsupported command action",
-					Error:    fmt.Sprintf("unsupported action: %s", strings.TrimSpace(cmd.Action)),
-				}, logger)
-				continue
-			}
-			if !taskGuard.TryStart(cmd.TaskID) {
-				logger.Printf("task=%d duplicate command skipped", cmd.TaskID)
-				continue
-			}
-			if errMsg := validateInstallCommand(cmd); errMsg != "" {
-				logger.Printf("task=%d invalid install command: %s", cmd.TaskID, errMsg)
-				terminalReported := true
-				if cmd.TaskID > 0 {
-					terminalReported = reportTaskStatus(ctx, client, st.UUID, st.SecretKey, cmd.TaskID, api.TaskStatusRequest{
-						Status:   "failed",
-						Progress: 100,
-						Message:  "Invalid install command",
-						Error:    errMsg,
-					}, logger)
-				}
-				taskGuard.Finish(cmd.TaskID, terminalReported)
-				persistTaskDeduper(cfg.Paths.StateFile, st, taskGuard, logger)
-				continue
-			}
-			select {
-			case installQueue <- installJob{command: cmd}:
-				logger.Printf("task=%d queued for install", cmd.TaskID)
-			default:
-				logger.Printf("task=%d install queue is full", cmd.TaskID)
-				terminalReported := reportTaskStatus(ctx, client, st.UUID, st.SecretKey, cmd.TaskID, api.TaskStatusRequest{
-					Status:   "failed",
-					Progress: 100,
-					Message:  "Install queue is full",
-					Error:    "install queue capacity reached",
-				}, logger)
-				taskGuard.Finish(cmd.TaskID, terminalReported)
-				persistTaskDeduper(cfg.Paths.StateFile, st, taskGuard, logger)
-			}
-		}
+		processCommands(hb.Commands)
+	}
+	if cfg.WebSocket.Enabled {
+		startWSClient()
 	}
 
 	for {
@@ -844,11 +1070,130 @@ func main() {
 			logger.Println("linux agent stopping")
 			return
 		case <-ticker.C:
+			if wsActive.Load() {
+				continue
+			}
 			sendHeartbeat("periodic")
 		case <-triggerCh:
 			sendHeartbeat("signal-triggered")
-			ticker.Reset(time.Duration(interval) * time.Second)
+			configMu.Lock()
+			currentInterval := interval
+			configMu.Unlock()
+			ticker.Reset(time.Duration(currentInterval) * time.Second)
 		}
+	}
+}
+
+func heartbeatConfigToMap(cfg api.HeartbeatConfig) map[string]any {
+	b, err := json.Marshal(cfg)
+	if err != nil {
+		return nil
+	}
+	out := make(map[string]any)
+	if err := json.Unmarshal(b, &out); err != nil {
+		return nil
+	}
+	return out
+}
+
+func parseHeartbeatConfigFromMap(m map[string]any) *api.HeartbeatConfig {
+	if len(m) == 0 {
+		return nil
+	}
+	b, err := json.Marshal(m)
+	if err != nil {
+		return nil
+	}
+	var cfg api.HeartbeatConfig
+	if err := json.Unmarshal(b, &cfg); err != nil {
+		return nil
+	}
+	return &cfg
+}
+
+func parseCommandsFromPayload(payload map[string]any) []api.Command {
+	if len(payload) == 0 {
+		return nil
+	}
+	commandsRaw := payload["commands"]
+	if commandsRaw == nil {
+		commandsRaw = payload["pending_commands"]
+	}
+	if commandsRaw == nil {
+		return nil
+	}
+	b, err := json.Marshal(commandsRaw)
+	if err != nil {
+		return nil
+	}
+	var commands []api.Command
+	if err := json.Unmarshal(b, &commands); err != nil {
+		return nil
+	}
+	return commands
+}
+
+func parseRSRequestFromPayload(payload map[string]any) *api.RemoteSupportRequest {
+	if len(payload) == 0 {
+		return nil
+	}
+	raw := payload["remote_support_request"]
+	if raw == nil {
+		raw = payload["pending_rs_request"]
+	}
+	if raw == nil {
+		raw = payload["remote_support"]
+	}
+	if raw == nil {
+		raw = payload
+	}
+	b, err := json.Marshal(raw)
+	if err != nil {
+		return nil
+	}
+	var req api.RemoteSupportRequest
+	if err := json.Unmarshal(b, &req); err != nil || req.SessionID <= 0 {
+		return nil
+	}
+	return &req
+}
+
+func parseRSEndFromPayload(payload map[string]any) *api.RemoteSupportEnd {
+	if len(payload) == 0 {
+		return nil
+	}
+	raw := payload["remote_support_end"]
+	if raw == nil {
+		raw = payload["pending_rs_end"]
+	}
+	if raw == nil {
+		raw = payload
+	}
+	b, err := json.Marshal(raw)
+	if err != nil {
+		return nil
+	}
+	var end api.RemoteSupportEnd
+	if err := json.Unmarshal(b, &end); err != nil || end.SessionID <= 0 {
+		return nil
+	}
+	return &end
+}
+
+func intFromAny(v any) (int, bool) {
+	switch t := v.(type) {
+	case int:
+		return t, true
+	case int32:
+		return int(t), true
+	case int64:
+		return int(t), true
+	case float64:
+		return int(t), true
+	case float32:
+		return int(t), true
+	default:
+		return 0, false
 	}
 }
 
@@ -914,8 +1259,21 @@ func maybeApplySelfUpdate(ctx context.Context, client *api.Client, cfg *config.C
 	}
 	_ = os.Remove(backupPath)
 
+	originalConfigContent, readConfigErr := os.ReadFile(configPath)
+	if readConfigErr != nil {
+		logger.Printf("self-update warning: config backup read failed before version update: %v", readConfigErr)
+	}
 	if err := config.UpdateAgentVersion(configPath, targetVersion); err != nil {
 		logger.Printf("self-update warning: config version update failed: %v", err)
+	} else {
+		if _, err := config.Load(configPath); err != nil {
+			logger.Printf("self-update warning: config validation failed after version update: %v", err)
+			if readConfigErr == nil {
+				if restoreErr := os.WriteFile(configPath, originalConfigContent, 0o600); restoreErr != nil {
+					logger.Printf("self-update warning: failed to restore config backup: %v", restoreErr)
+				}
+			}
+		}
 	}
 	cfg.Agent.Version = targetVersion
 	logger.Printf("self-update applied: current=%s target=%s bytes=%d", currentVersion, targetVersion, n)

@@ -121,6 +121,7 @@ type HeartbeatConfig struct {
 	ServiceMonitoringEnabled bool   `json:"service_monitoring_enabled"`
 	InventoryScanIntervalMin int    `json:"inventory_scan_interval_min"`
 	RemoteSupportEnabled     bool   `json:"remote_support_enabled"`
+	WebSocketEnabled         bool   `json:"websocket_enabled"`
 	LatestAgentVersion       string `json:"latest_agent_version,omitempty"`
 	AgentDownloadURL         string `json:"agent_download_url,omitempty"`
 	AgentHash                string `json:"agent_hash,omitempty"`

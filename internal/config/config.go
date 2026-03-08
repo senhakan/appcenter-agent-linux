@@ -44,6 +44,12 @@ type Config struct {
 	IPC struct {
 		SocketPath string `yaml:"socket_path"`
 	} `yaml:"ipc"`
+	WebSocket struct {
+		Enabled         bool   `yaml:"enabled"`
+		URL             string `yaml:"url"`
+		ReconnectMinSec int    `yaml:"reconnect_min_sec"`
+		ReconnectMaxSec int    `yaml:"reconnect_max_sec"`
+	} `yaml:"websocket"`
 	RemoteSupport struct {
 		Enabled            bool   `yaml:"enabled"`
 		ApprovalTimeoutSec int    `yaml:"approval_timeout_sec"`
@@ -101,6 +107,12 @@ func Load(path string) (*Config, error) {
 	if cfg.IPC.SocketPath == "" {
 		cfg.IPC.SocketPath = "/var/run/appcenter-agent/ipc.sock"
 	}
+	if cfg.WebSocket.ReconnectMinSec <= 0 {
+		cfg.WebSocket.ReconnectMinSec = 2
+	}
+	if cfg.WebSocket.ReconnectMaxSec <= 0 {
+		cfg.WebSocket.ReconnectMaxSec = 60
+	}
 	if cfg.RemoteSupport.ApprovalTimeoutSec <= 0 {
 		cfg.RemoteSupport.ApprovalTimeoutSec = 30
 	}
@@ -111,6 +123,20 @@ func Load(path string) (*Config, error) {
 		cfg.RemoteSupport.Port = 20010
 	}
 	return &cfg, nil
+}
+
+func Save(path string, cfg *Config) error {
+	if cfg == nil {
+		return fmt.Errorf("config is nil")
+	}
+	b, err := yaml.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("marshal config: %w", err)
+	}
+	if err := os.WriteFile(path, b, 0o600); err != nil {
+		return fmt.Errorf("write config: %w", err)
+	}
+	return nil
 }
 
 func EnsureDirs(cfg *Config) error {
@@ -154,7 +180,7 @@ func UpdateAgentVersion(path string, version string) error {
 			inAgent = false
 		}
 		if inAgent && versionLineRe.MatchString(line) {
-			lines[i] = `  version: "` + version + `"`
+			lines[i] = `    version: "` + version + `"`
 			updated = true
 			break
 		}
@@ -163,7 +189,7 @@ func UpdateAgentVersion(path string, version string) error {
 		return fmt.Errorf("agent.version line not found in config")
 	}
 	out := []byte(strings.Join(lines, "\n"))
-	if err := os.WriteFile(path, out, 0o644); err != nil {
+	if err := os.WriteFile(path, out, 0o600); err != nil {
 		return fmt.Errorf("write config: %w", err)
 	}
 	return nil

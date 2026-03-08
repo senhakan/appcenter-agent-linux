@@ -15,7 +15,7 @@ SERVER_DIR="${SERVER_DIR:-/opt/appcenter/server}"
 
 echo "[publish-self-update] building linux agent binary"
 cd "${ROOT_DIR}"
-go build -o "${BUILD_BIN}" ./cmd/service
+CGO_ENABLED=0 go build -ldflags="-s -w" -o "${BUILD_BIN}" ./cmd/service
 
 SHA="$(sha256sum "${BUILD_BIN}" | awk '{print $1}')"
 SHORT="${SHA:0:8}"
