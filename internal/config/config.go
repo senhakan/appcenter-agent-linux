@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
-	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -152,44 +150,18 @@ func EnsureDirs(cfg *Config) error {
 	return nil
 }
 
-var versionLineRe = regexp.MustCompile(`^(\s*version:\s*)(["']?)([^"']*)(["']?)\s*$`)
-var agentSectionLineRe = regexp.MustCompile(`^\s*agent:\s*$`)
-var topLevelLineRe = regexp.MustCompile(`^\S`)
-
 func UpdateAgentVersion(path string, version string) error {
 	if path == "" || version == "" {
 		return fmt.Errorf("path and version are required")
 	}
-	b, err := os.ReadFile(path)
+
+	cfg, err := Load(path)
 	if err != nil {
 		return fmt.Errorf("read config: %w", err)
 	}
-	lines := regexp.MustCompile(`\r?\n`).Split(string(b), -1)
-	inAgent := false
-	updated := false
-	for i, line := range lines {
-		trim := line
-		if trim == "" {
-			continue
-		}
-		if agentSectionLineRe.MatchString(trim) {
-			inAgent = true
-			continue
-		}
-		if inAgent && topLevelLineRe.MatchString(trim) {
-			inAgent = false
-		}
-		if inAgent && versionLineRe.MatchString(line) {
-			lines[i] = `    version: "` + version + `"`
-			updated = true
-			break
-		}
-	}
-	if !updated {
-		return fmt.Errorf("agent.version line not found in config")
-	}
-	out := []byte(strings.Join(lines, "\n"))
-	if err := os.WriteFile(path, out, 0o600); err != nil {
+
+	cfg.Agent.Version = version
+	if err := Save(path, cfg); err != nil {
 		return fmt.Errorf("write config: %w", err)
 	}
 	return nil

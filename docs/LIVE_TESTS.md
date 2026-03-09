@@ -2608,3 +2608,52 @@ curl -fsSL http://10.6.100.170:8000/uploads/agent_linux/bootstrap.sh | sudo bash
 
 - Status history artik signal timeout dongusunden etkilenmiyor.
 - Flapping problemi heartbeat disi sinyal akisindan temizlendi.
+
+## 2026-03-08 - Live Validation (Server Deploy + Pardus 25 / 10.6.60.181)
+
+### Kapsam
+
+- Server canli deploy + health/smoke kontrolu
+- Pardus client (`10.6.60.181`, `user`) uzerinde:
+  - servis binary update + restart
+  - foreground live smoke (`scripts/live_smoke.sh` parametreli)
+  - remote-support 4xx non-retry regresyonu (manuel, Python unix socket client ile)
+
+### Calistirilan adimlar
+
+- Server:
+  - `/root/appcenter/server/scripts/deploy-live.sh /root/appcenter/server/ /opt/appcenter/server/ appcenter.service`
+  - `GET /health` -> `200`
+  - admin token ile smoke endpointleri:
+    - `/api/v1/dashboard/stats` -> `200`
+    - `/api/v1/settings` -> `200`
+    - `/api/v1/groups` -> `200`
+    - `/api/v1/agents` -> `200`
+    - `/api/v1/ws/stats` -> `200`
+- Pardus 181:
+  - `go build -o build/service ./cmd/service`
+  - SHA dogrulama + `/opt/appcenter-agent/appcenter-agent-linux` replace
+  - backup: `/opt/appcenter-agent/appcenter-agent-linux.20260308_185226.bak`
+  - `systemctl restart appcenter-agent.service` -> `active`
+  - server listesinde agent: `d85705fd-d8ee-4654-9879-d982141e558c`, `status=online`, `version=0.1.47-live`
+- Foreground smoke (izole config, `/tmp/ac-live`):
+  - `AGENT_TEST_HOST=10.6.60.181 AGENT_TEST_USER=user AGENT_TEST_PASS=*** ./scripts/live_smoke.sh`
+  - log ozet:
+    - `linux agent runtime: ...`
+    - `register ok: uuid=74aee767-561c-41ce-91ab-a30c61e690fe`
+    - `ipc server listening: /tmp/ac-live/ipc.sock`
+- Remote support 4xx regresyon:
+  - Hazir script (`live_regression_remote_support.sh`) bu hosttaki `nc` aracinin `-U` destegi olmadigi icin dogrudan gecemedi.
+  - Ayni senaryo Python unix socket client ile manuel kosuldu.
+  - Beklenen davraniş:
+    - `ping` -> `ok`
+    - unsupported action -> `unsupported_action`
+    - `remote_support_session_request` -> `remote_support_session_pending`
+    - `remote_support_approve` -> `remote_support_approve_failed` (HTTP 400 callback)
+    - approve API cagrisi adedi: `1` (non-retry dogrulandi)
+
+### Sonuc
+
+- Server deploy sonrasi servis ve API smoke kontrolleri basarili.
+- Pardus `10.6.60.181` client online durumda, servis restart + heartbeat akisinda sorun yok.
+- Remote support 4xx non-retry davranisi canli kosuda dogrulandi.
