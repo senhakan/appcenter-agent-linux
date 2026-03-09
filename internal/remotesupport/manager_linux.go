@@ -76,6 +76,8 @@ func (m *Manager) Start(vncPassword string) (Status, error) {
 		"-noxrecord",
 		"-noxfixes",
 		"-noxdamage",
+		// Avoid MIT-SHM attach failures on locked-down desktops when agent runs as root.
+		"-noshm",
 	}
 	if strings.TrimSpace(vncPassword) == "" {
 		args = append(args, "-nopw")
