@@ -15,12 +15,14 @@ import (
 	"regexp"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
 
+	"appcenter-agent-linux/internal/announcement"
 	"appcenter-agent-linux/internal/api"
 	"appcenter-agent-linux/internal/config"
 	"appcenter-agent-linux/internal/installer"
@@ -615,6 +617,68 @@ func main() {
 	var handleRSEnd func(end *api.RemoteSupportEnd)
 	var wsStartOnce sync.Once
 	var wsClient *wsconn.Client
+	announcementTracker := announcement.NewTracker()
+	parseAnnouncementID := func(v any) (int, bool) {
+		if id, ok := intFromAny(v); ok && id > 0 {
+			return id, true
+		}
+		s, ok := v.(string)
+		if !ok {
+			return 0, false
+		}
+		id, err := strconv.Atoi(strings.TrimSpace(s))
+		if err != nil || id <= 0 {
+			return 0, false
+		}
+		return id, true
+	}
+	handleAnnouncementPush := func(payload map[string]any) {
+		if len(payload) == 0 {
+			return
+		}
+		id, ok := parseAnnouncementID(payload["announcement_id"])
+		if !ok {
+			logger.Printf("announcement: invalid payload, missing announcement_id")
+			return
+		}
+		title, _ := payload["title"].(string)
+		message, _ := payload["message"].(string)
+		priority, _ := payload["priority"].(string)
+		if strings.TrimSpace(priority) == "" {
+			priority = "normal"
+		}
+
+		announcementTracker.Add(id, title, message, priority)
+		go func(announcementID int, annTitle, annMessage, annPriority string) {
+			announcement.ShowNotification(annTitle, annMessage, annPriority)
+			if wsClient != nil {
+				if ok := wsClient.SendEvent(ctx, "agent.announcement.ack", map[string]any{
+					"announcement_id": announcementID,
+				}); !ok {
+					logger.Printf("announcement: failed to send ack for id=%d", announcementID)
+				}
+			} else {
+				logger.Printf("announcement: ws client unavailable, ack skipped for id=%d", announcementID)
+			}
+			announcementTracker.Remove(announcementID)
+		}(id, title, message, priority)
+	}
+	processPendingAnnouncements := func(raw any) {
+		switch items := raw.(type) {
+		case []any:
+			for _, item := range items {
+				payload, ok := item.(map[string]any)
+				if !ok {
+					continue
+				}
+				handleAnnouncementPush(payload)
+			}
+		case []map[string]any:
+			for _, payload := range items {
+				handleAnnouncementPush(payload)
+			}
+		}
+	}
 	restartRequestCh := make(chan string, 1)
 	requestRestart := func(reason string) {
 		select {
@@ -735,6 +799,7 @@ func main() {
 								}
 							}
 						}
+						processPendingAnnouncements(payload["pending_announcements"])
 						enforceRemoteSupportPolicy()
 						processCommands(parseCommandsFromPayload(payload))
 						handleRSRequest(parseRSRequestFromPayload(payload))
@@ -792,6 +857,9 @@ func main() {
 						case triggerCh <- struct{}{}:
 						default:
 						}
+					},
+					OnAnnouncementPush: func(payload map[string]any) {
+						handleAnnouncementPush(payload)
 					},
 				},
 				Logger: logger,
@@ -1156,6 +1224,7 @@ func main() {
 		enforceRemoteSupportPolicy()
 		handleRSRequest(hb.RemoteSupportRequest)
 		handleRSEnd(hb.RemoteSupportEnd)
+		processPendingAnnouncements(hb.PendingAnnouncements)
 		now := time.Now()
 		configMu.Lock()
 		shouldSyncInventory := now.After(nextInventorySync)

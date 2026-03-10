@@ -312,6 +312,11 @@ func (c *Client) messageLoop(ctx context.Context, conn *websocket.Conn) error {
 				c.callbacks.OnBroadcastSelfUpdate(msg.Payload)
 			}
 
+		case "server.announcement.push":
+			if c.callbacks.OnAnnouncementPush != nil {
+				c.callbacks.OnAnnouncementPush(msg.Payload)
+			}
+
 		default:
 			c.logger.Printf("ws unhandled message type: %s", msg.Type)
 		}

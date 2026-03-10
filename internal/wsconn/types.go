@@ -69,4 +69,7 @@ type Callbacks struct {
 
 	// OnBroadcastSelfUpdate is called when server asks agent to trigger self-update flow.
 	OnBroadcastSelfUpdate func(payload map[string]any)
+
+	// OnAnnouncementPush is called when server pushes announcement notifications.
+	OnAnnouncementPush func(payload map[string]any)
 }
