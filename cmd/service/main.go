@@ -544,6 +544,7 @@ func main() {
 		}()
 	}
 	var nextInventorySync time.Time
+	var inventoryForceSync bool
 	inventoryInterval := 30 * time.Minute
 	wsStatusInterval := 5 * time.Minute
 	wsInventoryHashInterval := 15 * time.Minute
@@ -995,6 +996,7 @@ func main() {
 		if v, ok := serverConfig["inventory_sync_required"]; ok {
 			if b, ok := v.(bool); ok && b {
 				nextInventorySync = time.Time{}
+				inventoryForceSync = true
 			}
 		}
 		if v, ok := serverConfig["remote_support_enabled"]; ok {
@@ -1229,12 +1231,14 @@ func main() {
 		configMu.Lock()
 		shouldSyncInventory := now.After(nextInventorySync)
 		inventoryIntervalForSync := inventoryInterval
+		forceInventorySync := inventoryForceSync
 		configMu.Unlock()
 		if shouldSyncInventory {
-			ok := syncInventory(ctx, client, cfg.Paths.StateFile, st, st.UUID, st.SecretKey, logger)
+			ok := syncInventory(ctx, client, cfg.Paths.StateFile, st, st.UUID, st.SecretKey, forceInventorySync, logger)
 			configMu.Lock()
 			if ok {
 				nextInventorySync = now.Add(inventoryIntervalForSync)
+				inventoryForceSync = false
 			} else {
 				nextInventorySync = now.Add(2 * time.Minute)
 			}
@@ -1948,6 +1952,7 @@ func syncInventory(
 	statePath string,
 	st *state.AgentState,
 	agentUUID, secret string,
+	force bool,
 	logger *log.Logger,
 ) bool {
 	invCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
@@ -1959,7 +1964,7 @@ func syncInventory(
 		return false
 	}
 	hash := inventory.Hash(items)
-	if strings.EqualFold(strings.TrimSpace(st.InventoryHash), strings.TrimSpace(hash)) {
+	if !force && strings.EqualFold(strings.TrimSpace(st.InventoryHash), strings.TrimSpace(hash)) {
 		logger.Printf("inventory unchanged: count=%d", len(items))
 		return true
 	}
@@ -1977,7 +1982,7 @@ func syncInventory(
 	if err := state.Save(statePath, st); err != nil {
 		logger.Printf("inventory state save warning: %v", err)
 	}
-	logger.Printf("inventory submitted: count=%d", len(items))
+	logger.Printf("inventory submitted: count=%d force=%t", len(items), force)
 	return true
 }
 
