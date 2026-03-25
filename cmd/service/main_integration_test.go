@@ -74,7 +74,7 @@ func TestServiceBinaryWithMockAPIAndIPC(t *testing.T) {
 	cfg := fmt.Sprintf(`server:
   url: %q
 agent:
-  version: "0.1.0"
+  version: "0.1.55-live"
 heartbeat:
   interval_sec: 1
 download:

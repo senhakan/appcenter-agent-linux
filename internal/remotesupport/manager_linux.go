@@ -25,15 +25,17 @@ type Status struct {
 }
 
 type Manager struct {
-	mu     sync.Mutex
-	status Status
-	cmd    *exec.Cmd
-	logger *log.Logger
+	mu               sync.Mutex
+	status           Status
+	cmd              *exec.Cmd
+	logger           *log.Logger
+	preferredDisplay string
 }
 
 func NewManager(logger *log.Logger, display string, port int) *Manager {
 	env := ProbeEnv()
 	return &Manager{
+		preferredDisplay: display,
 		status: Status{
 			Installed:  env.Installed,
 			X11VNCPath: env.X11VNCPath,
@@ -62,7 +64,8 @@ func (m *Manager) Start(vncPassword string) (Status, error) {
 		m.mu.Unlock()
 		return st, fmt.Errorf("x11vnc is not installed")
 	}
-	display := m.status.Display
+	display := ResolveDisplay(m.preferredDisplay, m.logger)
+	m.status.Display = display
 	port := m.status.Port
 	path := m.status.X11VNCPath
 	cmd := exec.Command(

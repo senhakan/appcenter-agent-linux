@@ -79,7 +79,7 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("server.url is required")
 	}
 	if cfg.Agent.Version == "" {
-		cfg.Agent.Version = "0.1.0"
+		cfg.Agent.Version = "0.1.55-live"
 	}
 	if cfg.Heartbeat.IntervalSec <= 0 {
 		cfg.Heartbeat.IntervalSec = 60

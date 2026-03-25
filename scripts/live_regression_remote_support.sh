@@ -69,7 +69,7 @@ cat > config_remote_support_4xx_auto.yaml <<'YAML'
 server:
   url: "http://127.0.0.1:18105"
 agent:
-  version: "0.1.0"
+  version: "0.1.55-live"
 heartbeat:
   interval_sec: 2
 download:

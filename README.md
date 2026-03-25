@@ -51,6 +51,13 @@ Bu dizin, AppCenter Linux agent gelistirme ana proje dizinidir.
 
 ## Calisma Komutu Protokolu
 
+- `+1` komutu: "Yapilan degisiklikleri commit et, remote'a push et ve gerekli dokuman guncellemelerini tamamla" anlamina gelir.
+- Bu komut alindiginda ajan:
+  - degisiklikleri gozden gecirir,
+  - gerekli dokuman guncellemelerini tamamlar,
+  - uygun bir commit olusturur,
+  - remote'a push eder,
+  - sonucu raporlar.
 - `+2` komutu: "Plana gore islemlere onaysiz devam et" anlamina gelir.
 - Bu komut alindiginda ajan:
   - plan sirasinda ilerler,

@@ -7,7 +7,7 @@ BINARY_URL="${BINARY_URL:-}"
 SHA256_URL="${SHA256_URL:-}"
 AGENT_UUID="${AGENT_UUID:-}"
 AGENT_SECRET="${AGENT_SECRET:-}"
-AGENT_VERSION="${AGENT_VERSION:-0.1.0-live}"
+AGENT_VERSION="${AGENT_VERSION:-0.1.55-live}"
 HEARTBEAT_INTERVAL_SEC="${HEARTBEAT_INTERVAL_SEC:-20}"
 RS_ENABLED="${RS_ENABLED:-true}"
 RS_APPROVAL_TIMEOUT_SEC="${RS_APPROVAL_TIMEOUT_SEC:-30}"
@@ -35,7 +35,7 @@ Options:
   --sha256-url URL                  (default: <bundle-base-url>/appcenter-agent-linux.sha256)
   --agent-uuid UUID                 (optional; empty -> keep existing or generate)
   --agent-secret SECRET             (optional; usually empty for first registration)
-  --agent-version VERSION           (default: 0.1.0-live)
+  --agent-version VERSION           (default: 0.1.55-live)
   --heartbeat-interval-sec N        (default: 20)
   --rs-enabled true|false           (default: true)
   --rs-approval-timeout-sec N       (default: 30)
